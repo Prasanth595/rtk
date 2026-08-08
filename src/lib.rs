@@ -27,7 +27,7 @@ use cmds::ruby::{rake_cmd, rspec_cmd, rubocop_cmd};
 use cmds::rust::{cargo_cmd, runner};
 use cmds::scala::sbt_cmd;
 use cmds::system::{
-    ast_grep_cmd, ctest_cmd, deps, env_cmd, find_cmd, format_cmd, json_cmd, local_llm, log_cmd, ls,
+    ast_grep_cmd, ctest_cmd, deps, env_cmd, find_cmd, format_cmd, gci, json_cmd, local_llm, log_cmd, ls,
     pipe_cmd, read, search, summary, tree, wc_cmd,
 };
 
@@ -180,6 +180,20 @@ struct GainArgs {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    /// Compact RTK-native filesystem listing.
+    Gci {
+        paths: Vec<PathBuf>,
+        #[arg(short = 'a', long)]
+        all: bool,
+        #[arg(short = 'R', long)]
+        recursive: bool,
+        #[arg(long, requires = "recursive", value_parser = gci::parse_depth)]
+        max_depth: Option<usize>,
+        #[arg(long)]
+        filter: Option<String>,
+        #[arg(long, default_value_t = gci::DEFAULT_LIMIT, value_parser = gci::parse_limit)]
+        limit: usize,
+    },
     /// List directory contents with token-optimized output (proxy to native ls)
     Ls {
         /// Arguments passed to ls (supports all native ls flags like -l, -a, -h, -R)
@@ -2538,6 +2552,9 @@ fn run_cli() -> Result<i32> {
     }
 
     let code = match cli.command {
+        Commands::Gci { paths, all, recursive, max_depth, filter, limit } => {
+            gci::run(&paths, all, recursive, max_depth, filter.as_deref(), limit, cli.verbose)?
+        }
         Commands::Ls { args } => ls::run(&args, cli.verbose)?,
 
         Commands::Tree { args } => tree::run(&args, cli.verbose)?,
@@ -4028,7 +4045,8 @@ fn run_cli() -> Result<i32> {
 fn is_operational_command(cmd: &Commands) -> bool {
     matches!(
         cmd,
-        Commands::Ls { .. }
+        Commands::Gci { .. }
+            | Commands::Ls { .. }
             | Commands::Tree { .. }
             | Commands::Read { .. }
             | Commands::Smart { .. }
