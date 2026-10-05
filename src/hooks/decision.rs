@@ -170,8 +170,7 @@ pub(crate) fn decide(cmd: &str, verdict: PermissionVerdict, deny_rules: DenyRule
     decide_with_params(cmd, verdict, &excluded, &transparent_prefixes, deny_rules)
 }
 
-/// [`decide`] with the rewrite parameters supplied by the caller, mirroring
-/// [`check_command_with_rules_and_prefixes`](super::permissions::check_command_with_rules_and_prefixes).
+/// [`decide`] with the rewrite parameters supplied by the caller.
 ///
 /// `hook_rewrite_params` reads `config.toml`, which in a test build is the
 /// calling test's own. Taking the parameters lets a test state the
