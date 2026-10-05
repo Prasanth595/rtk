@@ -378,7 +378,7 @@ pub fn run(
         registry::normalize_transparent_prefixes(&transparent_prefixes);
 
     // Loaded once up front (see `PermissionRules`), not once per command.
-    let (deny, ask, allow) = permissions::load_rules_for(permissions::Host::Claude);
+    let (deny, ask, allow) = permissions::load_permission_rules();
     let rules = PermissionRules { deny, ask, allow };
 
     let cutoff = crate::core::utils::days_ago_cutoff(since_days);
