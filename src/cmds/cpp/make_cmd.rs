@@ -2,6 +2,7 @@
 
 use super::failure_fallback;
 use crate::core::runner::{self, RunOptions};
+use crate::core::shell::display_args;
 use crate::core::utils::resolved_command;
 use anyhow::Result;
 use regex::Regex;
@@ -35,12 +36,12 @@ fn run_inner(tool: &'static str, args: &[String], verbose: u8) -> Result<i32> {
         cmd.arg(a);
     }
     if verbose > 0 {
-        eprintln!("Running: {} {}", tool, args.join(" "));
+        eprintln!("Running: {} {}", tool, display_args(args));
     }
     runner::run_filtered_with_exit(
         cmd,
         tool,
-        &args.join(" "),
+        &display_args(args),
         move |raw, exit_code| filter_output(raw, tool, exit_code),
         RunOptions::with_tee(tool).preserve_filtered_failure_output(),
     )

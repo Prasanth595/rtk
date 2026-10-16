@@ -2,6 +2,7 @@
 
 use super::failure_fallback;
 use crate::core::runner::{self, RunOptions};
+use crate::core::shell::display_args;
 use crate::core::utils::resolved_command;
 use anyhow::Result;
 use regex::Regex;
@@ -43,7 +44,7 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
     }
 
     if verbose > 0 {
-        eprintln!("Running: cmake {}", args.join(" "));
+        eprintln!("Running: cmake {}", display_args(args));
     }
 
     let is_build = args.iter().any(|a| a == "--build");
@@ -51,7 +52,7 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
     runner::run_filtered_with_exit(
         cmd,
         "cmake",
-        &args.join(" "),
+        &display_args(args),
         move |raw, exit_code| {
             if is_build {
                 filter_build(raw, &args_owned, exit_code)

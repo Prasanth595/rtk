@@ -5,6 +5,7 @@
 
 use super::failure_fallback;
 use crate::core::runner::{self, RunOptions};
+use crate::core::shell::display_args;
 use crate::core::utils::resolved_command;
 use anyhow::Result;
 use regex::Regex;
@@ -75,14 +76,14 @@ struct MsbuildDiag {
 pub fn run(args: &[String], verbose: u8) -> Result<i32> {
     let cmd = msbuild_command(args);
     if verbose > 0 {
-        eprintln!("Running: msbuild {}", args.join(" "));
+        eprintln!("Running: msbuild {}", display_args(args));
     }
 
     let args_owned = args.to_vec();
     runner::run_filtered_with_exit(
         cmd,
         "msbuild",
-        &args.join(" "),
+        &display_args(args),
         move |raw, exit_code| filter_output(raw, &args_owned, exit_code),
         RunOptions::with_tee("msbuild").preserve_filtered_failure_output(),
     )
