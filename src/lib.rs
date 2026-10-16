@@ -1936,7 +1936,7 @@ fn run_fallback(parse_error: clap::Error) -> Result<i32> {
 
     // RTK meta-commands should never fall back to raw execution.
     // e.g. `rtk gain --badtypo` should show Clap's error, not try to run `gain` from $PATH.
-    if core::constants::RTK_META_COMMANDS.contains(&args[0].as_str()) {
+    if args[0] == "gci" || core::constants::RTK_META_COMMANDS.contains(&args[0].as_str()) {
         parse_error.exit();
     }
 
