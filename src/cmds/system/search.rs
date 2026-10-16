@@ -7,8 +7,8 @@ use crate::core::arg_tokenizer::{self, Dialect, Token, TokenKind, ValueSpec};
 use crate::core::guard::never_worse;
 use crate::core::shell::{display_args, with_args};
 use crate::core::stream::{
-    self, BoundedCaptureResult, CaptureResult, FilterMode, StdinMode, StreamFilter, exec_capture,
-    exec_capture_stdin, exec_capture_stdin_bounded, exec_capture_unguarded,
+    self, BoundedCaptureResult, FilterMode, StdinMode, StreamFilter, exec_capture_stdin,
+    exec_capture_stdin_bounded, exec_capture_unguarded,
 };
 use crate::core::tracking;
 use crate::core::utils::{ChildArgExt, resolved_command, strip_ansi};
