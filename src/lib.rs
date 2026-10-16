@@ -27,8 +27,8 @@ use cmds::ruby::{rake_cmd, rspec_cmd, rubocop_cmd};
 use cmds::rust::{cargo_cmd, runner};
 use cmds::scala::sbt_cmd;
 use cmds::system::{
-    ast_grep_cmd, ctest_cmd, deps, env_cmd, find_cmd, format_cmd, gci, json_cmd, local_llm, log_cmd, ls,
-    pipe_cmd, read, search, summary, tree, wc_cmd,
+    ast_grep_cmd, ctest_cmd, deps, env_cmd, find_cmd, format_cmd, gci, json_cmd, local_llm,
+    log_cmd, ls, pipe_cmd, read, search, summary, tree, wc_cmd,
 };
 
 use anyhow::{Context, Result};
@@ -2552,9 +2552,22 @@ fn run_cli() -> Result<i32> {
     }
 
     let code = match cli.command {
-        Commands::Gci { paths, all, recursive, max_depth, filter, limit } => {
-            gci::run(&paths, all, recursive, max_depth, filter.as_deref(), limit, cli.verbose)?
-        }
+        Commands::Gci {
+            paths,
+            all,
+            recursive,
+            max_depth,
+            filter,
+            limit,
+        } => gci::run(
+            &paths,
+            all,
+            recursive,
+            max_depth,
+            filter.as_deref(),
+            limit,
+            cli.verbose,
+        )?,
         Commands::Ls { args } => ls::run(&args, cli.verbose)?,
 
         Commands::Tree { args } => tree::run(&args, cli.verbose)?,
@@ -4124,6 +4137,80 @@ mod tests {
     use crate::core::test_isolation;
     use std::cell::Cell;
 
+    fn parse_gci(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(args)
+    }
+
+    #[test]
+    fn test_gci_cli_defaults_and_explicit_roots() {
+        let cli = parse_gci(&["rtk", "gci"]).unwrap();
+        match cli.command {
+            Commands::Gci {
+                paths,
+                all,
+                recursive,
+                max_depth,
+                filter,
+                limit,
+            } => {
+                assert!(paths.is_empty());
+                assert!(!all);
+                assert!(!recursive);
+                assert_eq!(max_depth, None);
+                assert_eq!(filter, None);
+                assert_eq!(limit, gci::DEFAULT_LIMIT);
+            }
+            _ => panic!("Expected Gci command"),
+        }
+
+        let cli = parse_gci(&[
+            "rtk",
+            "gci",
+            "one",
+            "two words",
+            "-a",
+            "-R",
+            "--max-depth",
+            "2",
+            "--filter",
+            "*.rs",
+            "--limit",
+            "7",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Gci {
+                paths,
+                all,
+                recursive,
+                max_depth,
+                filter,
+                limit,
+            } => {
+                assert_eq!(paths, [PathBuf::from("one"), PathBuf::from("two words")]);
+                assert!(all);
+                assert!(recursive);
+                assert_eq!(max_depth, Some(2));
+                assert_eq!(filter.as_deref(), Some("*.rs"));
+                assert_eq!(limit, 7);
+            }
+            _ => panic!("Expected Gci command"),
+        }
+    }
+
+    #[test]
+    fn test_gci_cli_rejects_invalid_combinations_and_values() {
+        for args in [
+            vec!["rtk", "gci", "--max-depth", "2"],
+            vec!["rtk", "gci", "-R", "--max-depth", "0"],
+            vec!["rtk", "gci", "--limit", "0"],
+            vec!["rtk", "gci", "--limit", "100001"],
+            vec!["rtk", "gci", "--unknown"],
+        ] {
+            assert!(parse_gci(&args).is_err());
+        }
+    }
+
     #[test]
     fn test_jest_and_vitest_get_the_hook_integrity_check() {
         for framework in ["jest", "vitest"] {
@@ -4655,6 +4742,7 @@ mod tests {
     fn test_every_subcommand_is_classified() {
         use clap::CommandFactory;
 
+        const NATIVE: &[&str] = &["gci"];
         const PASSTHROUGH: &[&str] = &[
             "ls",
             "tree",
@@ -4726,6 +4814,7 @@ mod tests {
             .map(|c| c.get_name().to_string())
             .filter(|name| {
                 !core::constants::RTK_META_COMMANDS.contains(&name.as_str())
+                    && !NATIVE.contains(&name.as_str())
                     && !PASSTHROUGH.contains(&name.as_str())
             })
             .collect();
