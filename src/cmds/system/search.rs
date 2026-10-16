@@ -818,8 +818,7 @@ pub fn run(
         (GrepOptions::default(), restored.clone())
     };
     let args = &forwarded;
-    let env_safe = std::env::var("RTK_AGENT_SAFE")
-        .ok()
+    let env_safe = crate::core::user_env::var("RTK_AGENT_SAFE")
         .and_then(|v| match v.trim().to_ascii_lowercase().as_str() {
             "1" | "true" | "yes" | "on" => Some(true),
             "0" | "false" | "no" | "off" => Some(false),
