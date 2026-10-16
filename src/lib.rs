@@ -1058,13 +1058,25 @@ enum Commands {
     },
 
     /// CMake build / configure with compact diagnostics
-    Cmake { #[arg(trailing_var_arg = true, allow_hyphen_values = true)] args: Vec<String> },
+    Cmake {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// make with compact diagnostics
-    Make { #[arg(trailing_var_arg = true, allow_hyphen_values = true)] args: Vec<String> },
+    Make {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// ninja with compact diagnostics
-    Ninja { #[arg(trailing_var_arg = true, allow_hyphen_values = true)] args: Vec<String> },
+    Ninja {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// MSBuild with compact compiler/linker diagnostics
-    Msbuild { #[arg(trailing_var_arg = true, allow_hyphen_values = true)] args: Vec<String> },
+    Msbuild {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 
     /// Show hook rewrite audit metrics (requires RTK_HOOK_AUDIT=1)
     #[command(name = "hook-audit")]

@@ -91,11 +91,12 @@ fn select_filtered_output(
     exit_code: i32,
     preserve_filtered_failure_output: bool,
 ) -> String {
-    let filtered = if preserve_filtered_failure_output && exit_code != 0 && filtered.trim().is_empty() {
-        format!("{}: failed (exit {})", tool_name, exit_code)
-    } else {
-        filtered.to_string()
-    };
+    let filtered =
+        if preserve_filtered_failure_output && exit_code != 0 && filtered.trim().is_empty() {
+            format!("{}: failed (exit {})", tool_name, exit_code)
+        } else {
+            filtered.to_string()
+        };
     let body = match hint {
         Some(h) => format!("{}\n{}", filtered, h),
         None => filtered,
@@ -370,8 +371,19 @@ where
     let shown = if let Some(label) = opts.tee_label {
         if opts.preserve_filtered_failure_output && exit_code != 0 {
             let hint = crate::core::tee::tee_and_hint(raw, label, exit_code);
-            let shown = select_filtered_output(tool_name, &filtered, hint.as_deref(), raw_for_tracking, exit_code, true);
-            if opts.no_trailing_newline { print!("{}", shown); } else { println!("{}", shown); }
+            let shown = select_filtered_output(
+                tool_name,
+                &filtered,
+                hint.as_deref(),
+                raw_for_tracking,
+                exit_code,
+                true,
+            );
+            if opts.no_trailing_newline {
+                print!("{}", shown);
+            } else {
+                println!("{}", shown);
+            }
             shown
         } else {
             print_with_hint(&filtered, raw, raw_for_tracking, label, exit_code)
@@ -380,7 +392,14 @@ where
         // The filters that opt out own their line endings: what they return is already
         // exactly what the command would have printed, terminator included.
         let guarded = if opts.preserve_filtered_failure_output && exit_code != 0 {
-            select_filtered_output(tool_name, &filtered, None, raw_for_tracking, exit_code, true)
+            select_filtered_output(
+                tool_name,
+                &filtered,
+                None,
+                raw_for_tracking,
+                exit_code,
+                true,
+            )
         } else {
             guard_stdout(raw_for_tracking, &filtered, opts.clean_outputs).to_string()
         };
