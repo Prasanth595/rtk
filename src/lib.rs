@@ -2567,7 +2567,7 @@ fn run_cli() -> Result<i32> {
             filter.as_deref(),
             limit,
             cli.verbose,
-        )?,
+        ),
         Commands::Ls { args } => ls::run(&args, cli.verbose)?,
 
         Commands::Tree { args } => tree::run(&args, cli.verbose)?,
