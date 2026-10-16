@@ -519,10 +519,11 @@ fn is_msbuild_context_noise(line: &str) -> bool {
 fn sanitize_context_line(line: &str) -> String {
     // Common MSBuild suffix noise: " ... [C:\path\Project.vcxproj]"
     // Keep behavior consistent with MSVC_COMPILER_RE stripping.
-    if line.ends_with(']') && line.contains(".vcxproj") {
-        if let Some(i) = line.rfind(" [") {
-            return line[..i].to_string();
-        }
+    if line.ends_with(']')
+        && line.contains(".vcxproj")
+        && let Some(i) = line.rfind(" [")
+    {
+        return line[..i].to_string();
     }
     line.to_string()
 }
