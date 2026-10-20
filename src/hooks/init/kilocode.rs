@@ -33,17 +33,18 @@ fn run_kilocode_mode_at(kilocode_dir: &Path, ctx: InitContext) -> Result<()> {
 }
 
 fn resolve_kilocode_dir() -> Result<PathBuf> {
-    if let Some(config_dir) = std::env::var_os("KILO_CONFIG_DIR").filter(|value| !value.is_empty())
+    if let Some(config_dir) =
+        user_dirs::env_path("KILO_CONFIG_DIR").filter(|value| !value.is_empty())
     {
         return Ok(PathBuf::from(config_dir));
     }
 
-    let home = dirs::home_dir().context(if cfg!(windows) {
+    let home = user_dirs::home().context(if cfg!(windows) {
         "Cannot determine home directory. Is %USERPROFILE% set?"
     } else {
         "Cannot determine home directory. Is $HOME set?"
     })?;
-    let config_dir = std::env::var_os("XDG_CONFIG_HOME")
+    let config_dir = user_dirs::env_path("XDG_CONFIG_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(CONFIG_DIR));

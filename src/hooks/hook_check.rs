@@ -3,7 +3,7 @@
 use super::constants::{HOOKS_SUBDIR, PRE_TOOL_USE_KEY, REWRITE_HOOK_FILE, SETTINGS_JSON};
 use super::init::{kilocode_plugin_installed, resolve_claude_dir};
 use super::is_claude_hook_command;
-use crate::core::constants::RTK_DATA_DIR;
+use crate::core::user_dirs;
 use crate::core::utils::from_json_str;
 use std::path::PathBuf;
 
@@ -162,13 +162,15 @@ fn hook_installed_path() -> Option<PathBuf> {
 }
 
 fn warn_marker_path() -> Option<PathBuf> {
-    let data_dir = dirs::data_local_dir()?.join(RTK_DATA_DIR);
+    let data_dir = user_dirs::data()?;
     Some(data_dir.join(".hook_warn_last"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::test_isolation;
+    use crate::core::user_env;
     use crate::hooks::constants::{
         CODEX_DIR, CONFIG_DIR, CURSOR_DIR, GEMINI_DIR, GEMINI_HOOK_FILE, HERMES_DIR,
         HERMES_PLUGIN_MANIFEST_FILE, HERMES_PLUGIN_NAME, HERMES_PLUGINS_SUBDIR,
@@ -381,41 +383,36 @@ mod tests {
 
     #[test]
     fn test_status_returns_valid_variant() {
-        // Skip on machines without Claude Code
-        let home = match dirs::home_dir() {
-            Some(h) => h,
-            None => return,
-        };
-        let claude_dir = home.join(".claude");
-        if !claude_dir.exists() {
-            assert_eq!(status(), HookStatus::Ok);
-            return;
-        }
-        // With .claude dir present, status must be one of the valid variants
-        let s = status();
-        assert!(
-            s == HookStatus::Ok || s == HookStatus::Outdated || s == HookStatus::Missing,
-            "Expected valid HookStatus variant, got {:?}",
-            s
-        );
+        // `status()` resolves through `CLAUDE_CONFIG_DIR`; pinned so both
+        // states can be asserted.
+        let tmp = test_isolation::tempdir();
+        let claude_dir = tmp.path().join(".claude");
+        user_env::with_path("CLAUDE_CONFIG_DIR", Some(&claude_dir), || {
+            assert_eq!(
+                status(),
+                HookStatus::Ok,
+                "no Claude dir: nothing to warn about"
+            );
+            std::fs::create_dir_all(&claude_dir).expect("create Claude dir");
+            assert_eq!(
+                status(),
+                HookStatus::Missing,
+                "a Claude dir with no rtk hook"
+            );
+        });
     }
 
     fn with_env_overrides<F: FnOnce(&std::path::Path, &std::path::Path)>(f: F) {
-        // Shared with init tests: both modules mutate CLAUDE_CONFIG_DIR in
-        // the same test binary, so they must hold one lock, not two.
-        let _guard = crate::hooks::init::CLAUDE_DIR_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let tmp_claude = tempfile::tempdir().expect("claude tempdir");
-        let tmp_kilo = tempfile::tempdir().expect("kilo tempdir");
+        let tmp = test_isolation::tempdir();
+        let claude_dir = tmp.path().join(".claude");
+        let kilo_dir = tmp.path().join("kilo");
+        std::fs::create_dir_all(&claude_dir).unwrap();
 
-        temp_env::with_vars(
-            [
-                ("CLAUDE_CONFIG_DIR", Some(tmp_claude.path().as_os_str())),
-                ("KILO_CONFIG_DIR", Some(tmp_kilo.path().as_os_str())),
-            ],
-            || f(tmp_claude.path(), tmp_kilo.path()),
-        );
+        test_isolation::with_agent_dir(tmp.path(), "CLAUDE_CONFIG_DIR", &claude_dir, || {
+            user_env::with_path("KILO_CONFIG_DIR", Some(&kilo_dir), || {
+                f(&claude_dir, &kilo_dir)
+            });
+        });
     }
 
     #[test]
