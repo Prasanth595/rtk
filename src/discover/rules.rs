@@ -854,6 +854,14 @@ pub const RULES: &[RtkRule] = &[
         ..RtkRule::DEFAULT
     },
     RtkRule {
+        pattern: r"^(?:npx\s+)?vercel\b",
+        rtk_cmd: "rtk vercel",
+        rewrite_prefixes: &["vercel", "npx vercel"],
+        category: "Cloud",
+        savings_pct: 75.0,
+        ..RtkRule::DEFAULT
+    },
+    RtkRule {
         pattern: r"^(?:\./gradlew|gradlew\.bat|gradlew|gradle)(?:\s+(test|build|clean|assemble\w*|install\w*|check|lint\w*|dependencies))?(\s|$)",
         rtk_cmd: "rtk gradlew",
         rewrite_prefixes: &["./gradlew", "gradlew.bat", "gradlew", "gradle"],
