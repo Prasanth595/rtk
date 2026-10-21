@@ -8,6 +8,14 @@
   One composable pipeline across everything your AI agent reads and sends — built on RTK's battle-tested bash-output compression (up to 90% smaller).
 </p>
 
+> [!NOTE]
+> **Fork Enhancements (`rpatty-dev/rtk`)**:
+> This fork introduces built-in **Vercel CLI token optimization**:
+> - Adds declarative TOML filter (`src/filters/vercel.toml`) targeting `vercel` and `npx vercel`.
+> - Strips noisy next-step hints, deployment protection warnings, and duplicate progress churn.
+> - Preserves key deployment URLs, alias confirmations, and actionable errors (reducing output by 65–85%).
+> - Adds automatic hook rewrites for `vercel` commands in coding agent environments (Gemini CLI, Claude Code, Cursor, Codex).
+
 <p align="center">
   <a href="https://github.com/rtk-ai/rtk/actions"><img src="https://github.com/rtk-ai/rtk/workflows/Security%20Check/badge.svg" alt="CI"></a>
   <a href="https://github.com/rtk-ai/rtk/releases"><img src="https://img.shields.io/github/v/release/rtk-ai/rtk" alt="Release"></a>
