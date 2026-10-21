@@ -41,11 +41,7 @@ pub fn resolve_filter(name: &str) -> Option<fn(&str) -> String> {
 }
 
 fn go_test_wrapper(input: &str) -> String {
-    if crate::cmds::go::go_cmd::is_go_test_json(input) {
-        crate::cmds::go::go_cmd::filter_go_test_json(input)
-    } else {
-        input.to_string()
-    }
+    crate::cmds::go::go_cmd::filter_go_test_pipe(input)
 }
 
 fn git_status_wrapper(input: &str) -> String {
@@ -201,7 +197,9 @@ pub fn auto_detect_filter(input: &str) -> fn(&str) -> String {
         return crate::cmds::php::phpunit_cmd::filter_phpunit_output;
     }
 
-    if first_trimmed.starts_with('{') && first_1k.contains("\"Action\"") {
+    if crate::cmds::go::go_cmd::is_go_test_json(input)
+        || (first_trimmed.starts_with('{') && first_1k.contains("\"Action\""))
+    {
         return go_test_wrapper;
     }
 
