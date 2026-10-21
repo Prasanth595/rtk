@@ -1,5 +1,6 @@
 //! Filters Ruff linter and formatter output.
 
+use crate::core::arg_tokenizer::{self, Dialect};
 use crate::core::config;
 use crate::core::runner;
 use crate::core::shell::display_args;
@@ -56,28 +57,22 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
 
     let mut cmd = resolved_command("ruff");
 
-    // Both spellings: injecting a second --output-format makes ruff reject the call.
-    let user_set_output_format = args
-        .iter()
-        .any(|a| a == "--output-format" || a.starts_with("--output-format="));
-
-    let user_json_format = args.iter().enumerate().any(|(i, a)| {
-        a == "--output-format=json"
-            || (a == "--output-format" && args.get(i + 1).is_some_and(|n| n == "json"))
-    });
-    let use_json_filter = !user_set_output_format || user_json_format;
+    let CheckFormat {
+        inject_json,
+        use_json_filter,
+    } = check_format(args);
     // `[]` is a clean run only when rtk chose the format; a user who asked for JSON gets `[]` back.
-    let clean_outputs: &[&str] = if is_check && !user_set_output_format {
+    let clean_outputs: &[&str] = if is_check && inject_json {
         &["[]"]
     } else {
         &[]
     };
 
     if is_check {
-        if user_set_output_format {
-            cmd.arg("check");
-        } else {
+        if inject_json {
             cmd.arg("check").arg("--output-format=json");
+        } else {
+            cmd.arg("check");
         }
 
         let start_idx = if !args.is_empty() && args[0] == "check" {
@@ -121,6 +116,43 @@ pub fn run(args: &[String], verbose: u8) -> Result<i32> {
         },
         runner::RunOptions::stdout_only().clean_outputs(clean_outputs),
     )
+}
+
+/// How rtk reads `ruff check` output, decided once from the args.
+#[derive(Debug, PartialEq, Eq)]
+struct CheckFormat {
+    /// rtk adds `--output-format=json` because the user chose no format.
+    inject_json: bool,
+    /// Stdout is the diagnostics array `filter_ruff_check_json` reads.
+    use_json_filter: bool,
+}
+
+fn check_format(args: &[String]) -> CheckFormat {
+    // Both spellings: injecting a second --output-format makes ruff reject the call.
+    let user_set_output_format = args
+        .iter()
+        .any(|a| a == "--output-format" || a.starts_with("--output-format="));
+
+    let user_json_format = args.iter().enumerate().any(|(i, a)| {
+        a == "--output-format=json"
+            || (a == "--output-format" && args.get(i + 1).is_some_and(|n| n == "json"))
+    });
+
+    // `--statistics` prints ruff's compact table, or under JSON an array that is not the
+    // diagnostics one `filter_ruff_check_json` reads: either way it passes through as ruff wrote it.
+    let statistics = has_statistics_flag(args);
+
+    CheckFormat {
+        inject_json: !user_set_output_format && !statistics,
+        use_json_filter: (!user_set_output_format || user_json_format) && !statistics,
+    }
+}
+
+/// Structural `tokenize` is enough: ruff rejects a value that looks like a flag (`--cache-dir
+/// --statistics` is "a value is required"), so no value-taking flag can hide this one.
+fn has_statistics_flag(args: &[String]) -> bool {
+    let tokens = arg_tokenizer::tokenize(args);
+    arg_tokenizer::has_flag(&tokens, Dialect::Posix, "statistics")
 }
 
 fn is_analyze_graph_invocation(args: &[String]) -> bool {
@@ -467,6 +499,90 @@ mod tests {
     fn top_level_flags_are_not_misclassified_as_paths() {
         assert!(!is_check_invocation(&["--version".to_string()]));
         assert!(!is_check_invocation(&["--help".to_string()]));
+    }
+
+    fn args(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn plain_check_gets_json_injected_and_filtered() {
+        for a in [args(&["check"]), args(&["check", "src"]), args(&["src"])] {
+            assert_eq!(
+                check_format(&a),
+                CheckFormat {
+                    inject_json: true,
+                    use_json_filter: true
+                },
+                "ruff {a:?}"
+            );
+        }
+    }
+
+    /// ruff's `--statistics` table is already compact, and under JSON it is a different
+    /// array from the diagnostics one, so it is neither injected nor run through the filter.
+    #[test]
+    fn statistics_keeps_ruffs_own_format() {
+        for a in [
+            args(&["check", "--statistics", "src"]),
+            args(&["src", "--statistics"]),
+            args(&["check", "--select", "F401", "--statistics"]),
+        ] {
+            assert_eq!(
+                check_format(&a),
+                CheckFormat {
+                    inject_json: false,
+                    use_json_filter: false
+                },
+                "ruff {a:?}"
+            );
+        }
+        // The user's JSON is the statistics array here, which the diagnostics filter cannot read.
+        assert_eq!(
+            check_format(&args(&["check", "--statistics", "--output-format=json"])),
+            CheckFormat {
+                inject_json: false,
+                use_json_filter: false
+            }
+        );
+    }
+
+    /// What the tokenizer sees as a flag: a path after `--`, or the value of another flag, is not.
+    #[test]
+    fn statistics_is_only_the_flag() {
+        for a in [
+            args(&["check", "--", "--statistics"]),
+            args(&["check", "--cache-dir=--statistics"]),
+            args(&["check", "--statistics-file", "x"]),
+        ] {
+            assert!(check_format(&a).inject_json, "ruff {a:?}");
+        }
+    }
+
+    #[test]
+    fn user_output_format_is_unchanged() {
+        let format = |a: &[&str]| check_format(&args(a));
+        assert_eq!(
+            format(&["check", "--output-format=json"]),
+            CheckFormat {
+                inject_json: false,
+                use_json_filter: true
+            }
+        );
+        assert_eq!(
+            format(&["check", "--output-format", "json"]),
+            CheckFormat {
+                inject_json: false,
+                use_json_filter: true
+            }
+        );
+        assert_eq!(
+            format(&["check", "--output-format", "concise"]),
+            CheckFormat {
+                inject_json: false,
+                use_json_filter: false
+            }
+        );
     }
 
     #[test]
