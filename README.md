@@ -6,6 +6,25 @@ This fork extends upstream [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk) with na
 
 ---
 
+> [!IMPORTANT]
+> ### ⚡ Agent One-Shot Installation Prompts
+>
+> Paste the appropriate prompt directly into your AI coding assistant (Claude Code, Gemini CLI, Cursor, Antigravity, OpenCode):
+>
+> #### Option A: If you already have `rtk` installed (Add Vercel Optimizer)
+> ```bash
+> Run this shell command to install and trust rpatty-dev's Vercel CLI optimizer in your active RTK setup:
+> curl -fsSL https://raw.githubusercontent.com/rpatty-dev/rtk/feat/vercel-cli-filter/src/filters/vercel.toml > /tmp/vercel_filter.toml && (TARGET_DIR="$([ "$(uname)" = "Darwin" ] && echo "$HOME/Library/Application Support/rtk" || echo "$HOME/.config/rtk")" && mkdir -p "$TARGET_DIR" && (grep -q "\[filters.vercel\]" "$TARGET_DIR/filters.toml" 2>/dev/null || cat /tmp/vercel_filter.toml >> "$TARGET_DIR/filters.toml") && printf "y\n" | rtk trust 2>/dev/null || true) && echo "✓ Vercel CLI optimizer active for RTK"
+> ```
+>
+> #### Option B: If you do NOT have `rtk` installed (Fresh Full Install + Vercel Optimizer)
+> ```bash
+> Run this shell command to install RTK and activate rpatty-dev's Vercel CLI optimizer in one step:
+> curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh && TARGET_DIR="$([ "$(uname)" = "Darwin" ] && echo "$HOME/Library/Application Support/rtk" || echo "$HOME/.config/rtk")" && mkdir -p "$TARGET_DIR" && curl -fsSL https://raw.githubusercontent.com/rpatty-dev/rtk/feat/vercel-cli-filter/src/filters/vercel.toml > "$TARGET_DIR/filters.toml" && printf "y\n" | rtk trust 2>/dev/null || true && echo "✓ RTK + Vercel CLI optimizer fully installed"
+> ```
+
+---
+
 ## What is Different in This Fork?
 
 1. **Vercel CLI Filter (`src/filters/vercel.toml`)**:
