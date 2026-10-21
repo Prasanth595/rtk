@@ -822,7 +822,7 @@ pub const RULES: &[RtkRule] = &[
         ..RtkRule::DEFAULT
     },
     RtkRule {
-        pattern: r"^dotnet\s+build\b",
+        pattern: r"^dotnet\s+(build|restore)\b",
         rtk_cmd: "rtk dotnet",
         pipeline_safety: PipelineSafety::ProducerOnly,
         rewrite_prefixes: &["dotnet"],
@@ -851,6 +851,38 @@ pub const RULES: &[RtkRule] = &[
         rewrite_prefixes: &["gcloud"],
         category: "Infra",
         savings_pct: 65.0,
+        ..RtkRule::DEFAULT
+    },
+    RtkRule {
+        pattern: r"^(?:npx\s+)?firebase\b",
+        rtk_cmd: "rtk firebase",
+        rewrite_prefixes: &["firebase", "npx firebase"],
+        category: "Cloud",
+        savings_pct: 80.0,
+        ..RtkRule::DEFAULT
+    },
+    RtkRule {
+        pattern: r"^tailscale\b",
+        rtk_cmd: "rtk tailscale",
+        rewrite_prefixes: &["tailscale"],
+        category: "Network",
+        savings_pct: 75.0,
+        ..RtkRule::DEFAULT
+    },
+    RtkRule {
+        pattern: r"^system_profiler\b",
+        rtk_cmd: "rtk system_profiler",
+        rewrite_prefixes: &["system_profiler"],
+        category: "System",
+        savings_pct: 70.0,
+        ..RtkRule::DEFAULT
+    },
+    RtkRule {
+        pattern: r"^(?:npx\s+)?vercel\b",
+        rtk_cmd: "rtk vercel",
+        rewrite_prefixes: &["vercel", "npx vercel"],
+        category: "Cloud",
+        savings_pct: 75.0,
         ..RtkRule::DEFAULT
     },
     RtkRule {
