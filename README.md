@@ -216,7 +216,7 @@ RTK supports 18 AI coding tools. Each integration rewrites shell commands to `rt
 
 For per-agent setup details, override controls, and graceful degradation, see the [Supported Agents guide](https://www.rtk-ai.app/guide/getting-started/supported-agents). The Hermes plugin source and tests live in `hooks/hermes/`; installed Hermes runtime files still live under `~/.hermes/plugins/rtk-rewrite/`.
 
-For Kilo Code installation from this fork, executable discovery, and isolated regression tests, see [hooks/kilocode/README.md](hooks/kilocode/README.md).
+For Kilo Code installation from source, executable discovery, and isolated regression tests, see [hooks/kilocode/README.md](hooks/kilocode/README.md).
 
 ## What RTK Covers
 

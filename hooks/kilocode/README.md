@@ -12,9 +12,9 @@
 - Honors Kilo's `XDG_CONFIG_HOME` and `KILO_CONFIG_DIR` configuration-directory overrides.
 - Set `RTK_KILO_BASH_PLUGIN=0` to disable rewrites for a session.
 
-## Install From This Fork
+## Install From Source
 
-In Bash, from the root of the checked-out fork, with Rust 1.91 or newer:
+In Bash, from the root of a checkout of this repository, with Rust 1.91 or newer:
 
 ```bash
 cargo install --path . --locked --root "$HOME/.local" --force
@@ -23,8 +23,10 @@ cargo install --path . --locked --root "$HOME/.local" --force
 
 This builds the current checkout and installs its embedded plugin. `--force`
 replaces an existing executable at that installation root. The repository's
-`install.sh` downloads official `rtk-ai/rtk` releases instead of building this
-fork. After updates, repeat both commands and restart Kilo to reload the plugin.
+`install.sh` downloads a prebuilt official `rtk-ai/rtk` release instead of
+building the current checkout, so use the source install to try plugin changes
+that are not released yet. After updates, repeat both commands and restart Kilo
+to reload the plugin.
 
 An earlier plugin could find `~/.local/bin/rtk` by absolute path, then emit
 `rtk git status` into a shell whose `PATH` did not contain that directory.
@@ -83,9 +85,10 @@ The plugin tests exercise the actual hooks and execute a temporary mock binary
 outside `PATH`, including chains, pipelines, quoted directory names, relative
 overrides and PATH entries, empty or custom tool `PATH`, preserved `PATH` order
 (no shadowing of earlier entries), opt-out, and missing binaries. Probes are
-isolated from host installations. These shell execution
-cases run on POSIX systems and are skipped on Windows; Windows key
-normalization is also simulated without invoking a Windows shell.
+isolated from host installations. The mock binary is a POSIX shell script, so
+every plugin test is skipped on Windows; Windows `PATH` key normalization is
+only simulated, by overriding `process.platform` on POSIX, without invoking a
+Windows shell.
 
 The command dispatch lives in `src/lib.rs`; `src/main.rs` only calls
 `rtk::entry()`. Install and uninstall helpers live in
