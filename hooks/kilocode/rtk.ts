@@ -1,6 +1,6 @@
 import type { Plugin, PluginModule } from "@kilocode/plugin"
 import { execFile } from "node:child_process"
-import { join } from "node:path"
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path"
 import { appendFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 
@@ -77,8 +77,15 @@ async function findRtk(): Promise<string | null> {
   ]
 
   for (const candidate of new Set(candidates)) {
-    const check = await runRtk(candidate, ["--version"])
-    if (check.exitCode === 0) return candidate
+    const explicitPath = isAbsolute(candidate) || candidate.includes("/") ||
+      (process.platform === "win32" && candidate.includes("\\"))
+    const paths = explicitPath
+      ? [resolve(candidate)]
+      : (process.env.PATH ?? "").split(delimiter).filter(Boolean).map((dir) => resolve(dir, candidate))
+    for (const path of new Set(paths)) {
+      const check = await runRtk(path, ["--version"])
+      if (check.exitCode === 0) return path
+    }
   }
   return null
 }
@@ -111,6 +118,14 @@ const rtkPlugin: Plugin = async () => {
     if (DEBUG) console.log(`${TAG} RTK not found — plugin disabled (${process.platform})`)
     return {}
   }
+  const binDir = dirname(rtkBin)
+  const validName = process.platform === "win32"
+    ? basename(rtkBin).toLowerCase() === "rtk.exe"
+    : basename(rtkBin) === "rtk"
+  if (binDir.includes(delimiter) || !validName) {
+    if (DEBUG) console.log(`${TAG} RTK path cannot supply bare rtk commands — plugin disabled`)
+    return {}
+  }
 
   // Per-process filename: a fixed name in a world-writable tmpdir could be
   // pre-planted as a symlink by another local user when debug mode is enabled.
@@ -122,6 +137,21 @@ const rtkPlugin: Plugin = async () => {
   if (DEBUG) console.log(`${TAG} RTK found at ${rtkBin} — plugin active`)
 
   return {
+    "shell.env": async (_input, output) => {
+      const pathKeys = process.platform === "win32"
+        ? Object.keys(output.env).filter((key) => key.toUpperCase() === "PATH").sort()
+        : ["PATH"]
+      const currentPath = output.env[pathKeys[0] ?? "PATH"] ?? process.env.PATH ?? ""
+      const entries = currentPath ? currentPath.split(delimiter) : []
+      // Rewritten commands use bare `rtk`, including inside chains and pipelines,
+      // so its directory only has to be reachable. Never reorder PATH: moving a
+      // shared directory (/usr/bin, ~/.local/bin) to the front would let its other
+      // executables shadow virtual environments and version-manager shims.
+      if (entries.includes(binDir)) return
+      // Windows treats PATH keys case-insensitively; emit just one override.
+      for (const key of pathKeys) delete output.env[key]
+      output.env.PATH = [...entries, binDir].join(delimiter)
+    },
     "tool.execute.before": async (input, output) => {
       const tool = String(input?.tool ?? "").toLowerCase()
       writeDebug(
