@@ -568,6 +568,7 @@ const SUBCOMMAND_ROUTERS: &[&str] = &[
     "kubectl",
     "mvn",
     "next",
+    "ng",
     "npm",
     "php",
     "pip",
@@ -2308,6 +2309,7 @@ mod command_label_tests {
                 "rtk gh issue",
             ),
             ("rtk cargo test --all", "rtk cargo test"),
+            ("rtk ng build app", "rtk ng build"),
             ("rtk docker compose up", "rtk docker compose"),
             // A wrapper script and its bare name are the same tool.
             ("rtk ./gradlew build", "rtk gradlew build"),
