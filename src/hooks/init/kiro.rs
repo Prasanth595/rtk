@@ -290,8 +290,8 @@ mod tests {
             "Steering should contain discover command"
         );
         assert!(
-            steering_content.contains("rtk proxy"),
-            "Steering should contain proxy command"
+            steering_content.contains("rtk bypass"),
+            "Steering should contain bypass command"
         );
 
         let hook_content = fs::read_to_string(&hook_path).unwrap();
@@ -502,8 +502,8 @@ mod tests {
             "Steering must list discover meta command"
         );
         assert!(
-            KIRO_STEERING.contains("rtk proxy"),
-            "Steering must list proxy meta command"
+            KIRO_STEERING.contains("rtk bypass"),
+            "Steering must list bypass meta command"
         );
         assert!(
             KIRO_STEERING.contains("rtk git status"),

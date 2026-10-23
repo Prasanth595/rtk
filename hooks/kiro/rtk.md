@@ -22,7 +22,7 @@ rtk gh pr list
 ```bash
 rtk gain            # bash output savings
 rtk discover        # missed rtk opportunities
-rtk proxy <cmd>     # run without filtering (debug)
+rtk bypass <cmd>    # run without filtering (debug)
 ```
 
 ## Why
