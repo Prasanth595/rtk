@@ -7984,7 +7984,11 @@ mod tests {
         ];
         for cmd in recursive {
             let result = rewrite_command_no_prefixes(cmd, &[]);
-            assert_eq!(result, None, "recursive grep should not be rewritten: {}", cmd);
+            assert_eq!(
+                result, None,
+                "recursive grep should not be rewritten: {}",
+                cmd
+            );
         }
     }
 
@@ -8000,7 +8004,11 @@ mod tests {
         ];
         for cmd in non_recursive {
             let result = rewrite_command_no_prefixes(cmd, &[]);
-            assert!(result.is_some(), "non-recursive grep should be rewritten: {}", cmd);
+            assert!(
+                result.is_some(),
+                "non-recursive grep should be rewritten: {}",
+                cmd
+            );
             assert!(result.unwrap().starts_with("rtk grep"));
         }
     }
