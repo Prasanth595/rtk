@@ -264,3 +264,86 @@ fn clustered_log_help_is_forwarded_once_even_when_git_exits_zero() {
         );
     }
 }
+
+fn rtk_log_full(repo: &Path, args: &[&str]) -> std::process::Output {
+    let mut cmd = common::rtk_command();
+    cmd.args(["git", "log"]).args(args).current_dir(repo);
+    common::isolate_git(&mut cmd);
+    cmd.output().expect("run rtk")
+}
+
+/// Below 128 git's non-zero exit is not a refusal: `--check` exits 2 on whitespace errors and
+/// `--exit-code` exits 1 on differences, both after printing the whole walk. rtk printed
+/// nothing on stdout for either.
+#[test]
+fn log_walk_with_small_exit_code_keeps_its_output() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    git_ok(dir.path(), &["init", "-q"]);
+    let mut body = String::new();
+    for i in 0..12 {
+        body.push_str(&format!("line {i} \n"));
+        std::fs::write(dir.path().join("f"), &body).expect("write f");
+        git_ok(dir.path(), &["add", "f"]);
+        // A fixed old date, so rtk's relative `(N years ago)` reads the same on every run.
+        let mut commit = Command::new("git");
+        commit
+            .arg("-C")
+            .arg(dir.path())
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(["commit", "-q", "-m", &format!("c{i}")]);
+        common::isolate_git(&mut commit);
+        commit
+            .env("GIT_AUTHOR_DATE", "2005-04-07T22:13:13Z")
+            .env("GIT_COMMITTER_DATE", "2005-04-07T22:13:13Z");
+        assert!(commit.status().expect("run git").success(), "commit c{i}");
+    }
+
+    // `--check` reports under each commit, so git's walk is passed through as is, capped at
+    // rtk's default of 10 commits and announced.
+    let (want, want_code) = git_out(dir.path(), "log", &["-10", "--check"]);
+    assert_eq!(want_code, Some(2));
+    let got = rtk_log_full(dir.path(), &["--check"]);
+    assert_eq!(got.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8_lossy(&got.stdout),
+        String::from_utf8_lossy(&want)
+    );
+    assert!(
+        String::from_utf8_lossy(&got.stderr).contains("[rtk] capped at 10 commits"),
+        "{}",
+        String::from_utf8_lossy(&got.stderr)
+    );
+    let (want, want_code) = git_out(dir.path(), "log", &["-3", "--check"]);
+    assert_eq!(want_code, Some(2));
+    let (got, got_code) = rtk_out(dir.path(), "log", &["-3", "--check"]);
+    assert_eq!(got_code, Some(2));
+    assert_eq!(
+        String::from_utf8_lossy(&got),
+        String::from_utf8_lossy(&want)
+    );
+
+    // `--exit-code` leaves git log's output unchanged, so rtk compacts the walk as it would
+    // without the flag and passes git's exit code on.
+    for args in [
+        vec!["--exit-code"],
+        vec!["--exit-code", "--oneline"],
+        vec!["-3", "--exit-code"],
+    ] {
+        let mut native = vec!["-10"];
+        native.extend(&args);
+        assert_eq!(git_out(dir.path(), "log", &native).1, Some(1), "{native:?}");
+        let without: Vec<&str> = args
+            .iter()
+            .copied()
+            .filter(|a| *a != "--exit-code")
+            .collect();
+        let want = rtk_log_full(dir.path(), &without);
+        assert_eq!(want.status.code(), Some(0), "{without:?}");
+        let got = rtk_log_full(dir.path(), &args);
+        assert_eq!(got.status.code(), Some(1), "rtk git log {args:?}");
+        let got_out = String::from_utf8_lossy(&got.stdout);
+        assert!(got_out.contains("c11"), "{args:?}: {got_out}");
+        assert!(!got_out.contains("---END---"), "{args:?}: {got_out}");
+        assert_eq!(got_out, String::from_utf8_lossy(&want.stdout), "{args:?}");
+    }
+}

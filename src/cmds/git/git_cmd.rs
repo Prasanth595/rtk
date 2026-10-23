@@ -1964,7 +1964,9 @@ fn run_log(
 
     let result = exec_capture(&mut cmd).context("Failed to run git log")?;
 
-    if !result.success() {
+    // Below 128 git ran the walk and printed it in full: `--exit-code` exits 1 when the diff
+    // machinery found differences. Only a refusal leaves nothing to compact.
+    if !(0..REFUSAL_EXIT_CODE).contains(&result.exit_code) {
         // git prints some failures (a usage page) on stdout, so forward it as well
         print!("{}", result.stdout);
         eprint!("{}", result.stderr);
@@ -1987,7 +1989,7 @@ fn run_log(
         &filtered,
     );
 
-    Ok(0)
+    Ok(result.exit_code)
 }
 
 /// The long flags `git log`, `diff` and `show` all take a value for. Shared deliberately: these
@@ -2121,6 +2123,9 @@ fn log_wants_raw_shape(token: &Token<'_>, tokens: &[Token<'_>]) -> bool {
             // A binary patch is meant to be fed back to `git apply`; compacting it destroys
             // that, so it takes the raw route rather than merely being kept out of the header.
             "binary"
+                // Puts a whitespace report under each commit, as in `show`, and exits 2 on a
+                // walk git ran and printed in full.
+                | "check"
                 // `--cc`/`--remerge-diff` imply `-p` on merge commits (8 diff lines against
                 // git 2.53 where plain log has none), and the log compaction drops the patch
                 // with no tee to recover it from.
