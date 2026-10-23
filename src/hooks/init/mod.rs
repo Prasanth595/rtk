@@ -23,23 +23,23 @@ use crate::core::test_isolation;
 use crate::core::user_dirs;
 
 mod agents_md;
-mod antigravity;
-mod claude;
-mod codex;
+pub(crate) mod antigravity;
+pub(crate) mod claude;
+pub(crate) mod codex;
 mod copilot;
-mod cursor;
-mod droid;
-mod gemini;
-mod hermes;
+pub(crate) mod cursor;
+pub(crate) mod droid;
+pub(crate) mod gemini;
+pub(crate) mod hermes;
 mod instructions_agents;
-mod opencode;
-mod pi;
-mod trae;
-mod vibe;
+pub(crate) mod opencode;
+pub(crate) mod pi;
+pub(crate) mod trae;
+pub(crate) mod vibe;
 
 // `agents_md` and `pi` hold helpers that several submodules share, so they are
-// glob-imported and reach siblings through `use super::*`; every other submodule is used only
-// from here and is imported by name.
+// glob-imported and reach siblings through `use super::*`; the remaining submodules are
+// imported by name here (and agent modules with hook probes are `pub(crate)` for `hook_check`).
 use agents_md::*;
 use claude::{
     hook_already_present, hook_gaps, remove_settings_entries, run_claude_md_mode, run_default_mode,
