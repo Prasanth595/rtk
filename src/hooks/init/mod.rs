@@ -32,6 +32,7 @@ mod droid;
 mod gemini;
 mod hermes;
 mod instructions_agents;
+mod kilocode;
 mod opencode;
 mod pi;
 mod trae;
@@ -63,7 +64,8 @@ pub use copilot::{run_copilot, run_copilot_global, uninstall_copilot, uninstall_
 pub use droid::{run_droid_mode, uninstall_droid};
 pub use gemini::run_gemini;
 pub use hermes::{run_hermes_mode, uninstall_hermes};
-pub use instructions_agents::{run_kilocode_mode, run_kimi_mode};
+pub use instructions_agents::run_kimi_mode;
+pub use kilocode::{kilocode_plugin_installed, run_kilocode_mode, uninstall_kilocode};
 pub use pi::{run_omp_mode_with_patch_mode, run_pi_mode_with_patch_mode};
 pub use trae::{run_trae_mode, uninstall_trae_mode};
 pub use vibe::{run_vibe_mode, uninstall_vibe};
@@ -2269,6 +2271,7 @@ fn show_claude_config() -> Result<()> {
 
 #[cfg(test)]
 use tempfile::TempDir;
+
 #[cfg(test)]
 pub(super) fn with_claude_dir_override<F: FnOnce(&Path)>(tmp: &TempDir, f: F) {
     let claude_dir = tmp.path().join(CLAUDE_DIR);
