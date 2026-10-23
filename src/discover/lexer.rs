@@ -643,6 +643,14 @@ fn is_grammar_word(value: &str) -> bool {
 // `>word 2>&1` — a file target.
 pub(crate) fn redirect_has_file_target(tokens: &[ParsedToken], i: usize) -> bool {
     let value = &tokens[i].value;
+    // Heredocs (`<<` and `<<-`) have a delimiter, not a file target.
+    // They are always unattestable because the body is inline data.
+    if value
+        .trim_start_matches(|ch: char| ch.is_ascii_digit())
+        .starts_with("<<")
+    {
+        return true;
+    }
     // `<&` duplicates a descriptor exactly as `>&` does, and the tokenizer
     // only folds digits or `-` after either, so neither can name a file.
     if let Some(pos) = value.find(">&").or_else(|| value.find("<&")) {
@@ -1859,6 +1867,19 @@ mod tests {
         assert!(!contains_unattestable_construct("cmd > /dev/null"));
         assert!(!contains_unattestable_construct("cmd &> /dev/null"));
         assert!(!contains_unattestable_construct("cmd >& /dev/null"));
+    }
+
+    #[test]
+    fn test_bugfix_issue_3980_heredoc_devnull_not_exempt() {
+        // Heredocs with /dev/null as delimiter should be unattestable
+        // because /dev/null is the delimiter, not a file target
+        assert!(contains_unattestable_construct("git status << /dev/null"));
+        assert!(contains_unattestable_construct("git status <</dev/null"));
+        assert!(contains_unattestable_construct("git status <<-EOF"));
+        assert!(contains_unattestable_construct("git status <<- /dev/null"));
+        assert!(contains_unattestable_construct("git status 3<< /dev/null"));
+        assert!(contains_unattestable_construct("git status 3<</dev/null"));
+        assert!(contains_unattestable_construct("git status 3<<- /dev/null"));
     }
 
     #[test]
