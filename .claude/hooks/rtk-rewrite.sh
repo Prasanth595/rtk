@@ -8,9 +8,9 @@
 #
 # Exit code protocol for `rtk rewrite`:
 #   0 + stdout  Rewrite found, an allow rule matched → auto-allow
-#   1           No RTK equivalent → pass through unchanged
+#   1           No RTK equivalent, or an ask rule decided it → pass through unchanged
 #   2           Deny rule matched → pass through (Claude Code native deny handles it)
-#   3 + stdout  Ask rule matched, or no rule matched → rewrite but let Claude Code prompt the user
+#   3 + stdout  No rule decided an ask, allow short of every command → rewrite but let Claude Code prompt the user
 
 # --- Audit logging (opt-in via RTK_HOOK_AUDIT=1) ---
 _rtk_audit_log() {
@@ -45,13 +45,16 @@ case "$CMD" in
 esac
 
 # Rewrite via rtk — single source of truth for all command mappings and permission checks.
-# Scrub RTK_REWRITE_HOST: that channel relaxes RTK's approval gate, and this
-# hook turns exit 0 into an explicit allow, so an inherited value (a shell rc,
-# .envrc, or CI env) must not reach it. Only the delegate that sets it may
-# rely on it.
+# Set RTK_REWRITE_HOST=claude rather than inheriting it: another value relaxes
+# RTK's approval gate, and this hook turns exit 0 into an explicit allow, so an
+# inherited one (a shell rc, .envrc, or CI env) must not reach it. `claude`
+# only withholds a rewrite: Claude Code matches its permission rules against
+# the command this hook returns, so when one of the user's ask rules decided
+# the command, `rtk rewrite` exits 1 and Claude Code prompts on the original
+# (#4644).
 # Use "|| EXIT_CODE=$?" to capture non-zero exit codes without triggering set -e.
 EXIT_CODE=0
-REWRITTEN=$(env -u RTK_REWRITE_HOST rtk rewrite "$CMD" 2>/dev/null) || EXIT_CODE=$?
+REWRITTEN=$(RTK_REWRITE_HOST=claude rtk rewrite "$CMD" 2>/dev/null) || EXIT_CODE=$?
 
 case $EXIT_CODE in
   0)
@@ -62,7 +65,8 @@ case $EXIT_CODE in
     fi
     ;;
   1)
-    # No RTK equivalent — pass through unchanged.
+    # No RTK equivalent, or one of the user's ask rules decided the command —
+    # pass through unchanged so Claude Code's own rule sees the original.
     _rtk_audit_log "skip:no_match" "$CMD"
     exit 0
     ;;
@@ -72,8 +76,8 @@ case $EXIT_CODE in
     exit 0
     ;;
   3)
-    # An ask rule matched, or no rule did — rewrite the command but do NOT
-    # auto-allow, so Claude Code prompts the user for confirmation.
+    # No rule allowed every command, and no ask rule decided it — rewrite the
+    # command but do NOT auto-allow, so Claude Code prompts the user.
     ;;
   *)
     exit 0

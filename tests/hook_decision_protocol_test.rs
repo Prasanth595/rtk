@@ -925,3 +925,145 @@ mod rewrite_host_scoping {
         assert!(!denied.recorded_a_recall());
     }
 }
+
+/// An explicit ask rule survives the Claude Code hooks (#4644).
+///
+/// Claude Code matches its permission rules against the command a hook hands
+/// back, not the one it sent. A `Bash(git push *)` ask rule does not match
+/// `rtk git push origin main`, so a rewritten push runs under a broad allow
+/// without the prompt the user asked for. When an ask rule matches, the Claude
+/// hooks leave the command alone and let Claude Code judge the original.
+mod explicit_ask_stays_visible {
+    use super::Sandbox;
+
+    /// A broad allow with an ask carve-out, the setup the issue reports.
+    fn carve_out() -> Sandbox {
+        Sandbox::with_rules(&[], &["git push *"], &["git *"])
+    }
+
+    #[test]
+    fn hook_claude_leaves_an_asked_command_unrewritten() {
+        let sb = carve_out();
+        assert_eq!(sb.hook_claude_rewrite("git push origin main"), None);
+    }
+
+    /// The carve-out costs only the asked command: the allowed rest of `git`
+    /// is still rewritten, so the defer is not a blanket one.
+    #[test]
+    fn hook_claude_still_rewrites_what_the_ask_rule_does_not_name() {
+        let sb = carve_out();
+        assert_eq!(
+            sb.hook_claude_rewrite("git status").as_deref(),
+            Some("rtk git status")
+        );
+    }
+
+    /// One asked segment keeps the whole chain unrewritten: a partial rewrite
+    /// would still hand Claude Code a chain its ask rule reads differently.
+    #[test]
+    fn hook_claude_leaves_a_chain_with_an_asked_segment_unrewritten() {
+        let sb = carve_out();
+        assert_eq!(
+            sb.hook_claude_rewrite("git status && git push origin main"),
+            None
+        );
+    }
+
+    /// No rule at all still rewrites, and still without an allow (#1155): the
+    /// defer is for an explicit ask, not for every command that would prompt.
+    #[test]
+    fn hook_claude_still_rewrites_the_default_ask() {
+        let sb = Sandbox::bare();
+        let stdout = sb.hook_claude("git push origin main");
+        let reply: serde_json::Value = serde_json::from_str(stdout.trim()).expect("JSON reply");
+        assert_eq!(
+            reply
+                .pointer("/hookSpecificOutput/updatedInput/command")
+                .and_then(|v| v.as_str()),
+            Some("rtk git push origin main")
+        );
+        assert_eq!(
+            reply.pointer("/hookSpecificOutput/permissionDecision"),
+            None
+        );
+    }
+
+    /// `rtk hook check` describes the hook it diagnoses.
+    #[test]
+    fn hook_check_reports_no_rewrite_for_claude() {
+        let sb = carve_out();
+        let (code, stdout, _) =
+            sb.run(&["hook", "check", "--agent", "claude", "git push origin main"]);
+        assert_eq!((code, stdout.trim()), (1, ""));
+        let (code, stdout, _) = sb.run(&["hook", "check", "--agent", "claude", "git status"]);
+        assert_eq!((code, stdout.trim()), (0, "rtk git status"));
+    }
+
+    /// `rtk rewrite` keeps its exit-code contract: an ask rule is exit 3 with
+    /// the rewrite. The shell hooks read the distinction themselves.
+    #[test]
+    fn rtk_rewrite_contract_is_unchanged() {
+        let sb = carve_out();
+        assert_eq!(
+            sb.rewrite("git push origin main"),
+            (3, "rtk git push origin main".into())
+        );
+    }
+
+    /// The shell hooks name themselves `claude`, and only an ask a rule
+    /// decided changes for them: exit 1, so they pass the original through.
+    #[test]
+    fn claude_host_renders_a_rule_decided_ask_as_no_rewrite() {
+        let sb = carve_out();
+        assert_eq!(
+            sb.rewrite_as("claude", "git push origin main"),
+            (1, String::new())
+        );
+        assert_eq!(
+            sb.rewrite_as("claude", "git status"),
+            (0, "rtk git status".into())
+        );
+        assert_eq!(
+            Sandbox::bare().rewrite_as("claude", "git push origin main"),
+            (3, "rtk git push origin main".into())
+        );
+    }
+
+    /// RTK asks for a shell wrapper itself, with no rule behind it; that ask is
+    /// not the user's, so the wrapper is still rewritten.
+    #[test]
+    fn a_wrapper_ask_raised_by_rtk_still_rewrites() {
+        let sb = carve_out();
+        let cmd = r#"bash -c "git status""#;
+        assert!(sb.hook_claude_rewrite(cmd).is_some(), "hook claude: {cmd}");
+        assert_eq!(sb.rewrite_as("claude", cmd).0, 3, "rtk rewrite: {cmd}");
+    }
+
+    /// Both shipped Claude shell hooks say nothing for an asked command and
+    /// still rewrite the rest. The rewrite of `git status` proves the hook,
+    /// `jq` and the built `rtk` all ran, so an empty reply is not a crash.
+    #[cfg(unix)]
+    #[test]
+    fn claude_shell_hooks_leave_an_asked_command_unrewritten() {
+        let sb = carve_out();
+        for hook in [
+            "hooks/claude/rtk-rewrite.sh",
+            ".claude/hooks/rtk-rewrite.sh",
+        ] {
+            let (code, stdout, stderr) = sb.run_hook(hook, "git push origin main", &[]);
+            assert_eq!(code, 0, "{hook} exit, stderr {stderr:?}");
+            assert_eq!(stdout.trim(), "", "{hook} rewrote an asked command");
+
+            let (_, stdout, stderr) = sb.run_hook(hook, "git status", &[]);
+            let reply: serde_json::Value = serde_json::from_str(stdout.trim())
+                .unwrap_or_else(|e| panic!("{hook} gave no JSON ({e}): {stdout:?} {stderr:?}"));
+            assert_eq!(
+                reply
+                    .pointer("/hookSpecificOutput/updatedInput/command")
+                    .and_then(|v| v.as_str()),
+                Some("rtk git status"),
+                "{hook}: {reply}"
+            );
+        }
+    }
+}

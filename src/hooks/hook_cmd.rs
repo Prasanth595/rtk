@@ -682,11 +682,16 @@ fn process_claude_payload(v: &Value) -> PayloadAction {
     };
 
     let cwd = v.get("cwd").and_then(Value::as_str);
-    process_claude_payload_from_decision(
-        v,
-        cmd,
-        decide_hook_action(cmd, permissions::Host::Claude, cwd),
-    )
+    let verdict = permissions::check_command_for(cmd, permissions::Host::Claude);
+    let decision = decide_from_verdict(cmd, verdict, cwd);
+    if decision::hides_ask_rule(cmd, &decision, verdict) {
+        return PayloadAction::Skip {
+            decision: HookOutcome::Defer,
+            reason: "skip:ask_rule",
+            cmd: cmd.to_string(),
+        };
+    }
+    process_claude_payload_from_decision(v, cmd, decision)
 }
 
 /// Pure core of `process_claude_payload`, taking the hook decision directly so the

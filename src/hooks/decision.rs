@@ -230,6 +230,38 @@ pub(crate) fn in_claude_worktree(cwd: &str) -> bool {
         .any(|w| w[0] == super::constants::CLAUDE_DIR && w[1] == "worktrees")
 }
 
+/// Whether rewriting `cmd` would hide one of the user's ask rules from Claude Code (#4644).
+///
+/// Claude Code matches its permission rules against the command a hook hands
+/// back, not the one it sent, so a `Bash(git push *)` ask rule never sees
+/// `rtk git push`. Under a broad allow the rewritten push then runs without the
+/// prompt the user asked for, so the Claude Code hooks leave such a command
+/// alone and the host prompts on the original. Only an ask a rule decided
+/// counts ([`ask_rule_decides`](super::permissions::ask_rule_decides)): a
+/// `Default` verdict or an `Ask` RTK raised itself for a shell wrapper names no
+/// rule, so the rewrite stands. Deny needs nothing here: Claude Code checks deny
+/// against both forms, and [`decide`] never rewrites a denied command.
+pub(crate) fn hides_ask_rule(
+    cmd: &str,
+    decision: &HookDecision,
+    verdict: PermissionVerdict,
+) -> bool {
+    verdict == PermissionVerdict::Ask
+        && matches!(decision, HookDecision::AskRewrite(_))
+        && super::permissions::ask_rule_decides(cmd, Host::Claude)
+}
+
+/// Whether the `rtk rewrite` caller named itself `claude` through
+/// [`REWRITE_HOST_ENV`], asking for [`hides_ask_rule`] to be applied.
+///
+/// This only ever withholds a rewrite, never relaxes a gate, so an inherited
+/// value costs token savings at most. An rtk that predates it ignores the
+/// variable and rewrites as before.
+pub(crate) fn host_is_claude_code_from_env() -> bool {
+    user_env::var(REWRITE_HOST_ENV)
+        .is_some_and(|name| matches!(AgentPath::lookup(&name), Some(AgentPath::ClaudeCode)))
+}
+
 /// Turn a rewrite that changed nothing into a [`HookDecision::Defer`].
 ///
 /// A command that is already RTK-prefixed rewrites to itself, and a hook that
@@ -279,6 +311,10 @@ pub(crate) fn suppress_identity(cmd: &str, decision: HookDecision) -> HookDecisi
 /// `rtk rewrite` do so in their own plugin, because `rtk rewrite` reports the
 /// no-op rather than suppressing it (see [`suppress_identity`]).
 pub(crate) enum AgentPath {
+    /// `rtk hook claude` — [`AgentPath::InProcess`] against Claude Code's rules,
+    /// except that an explicit ask rule is left for Claude Code to match on the
+    /// original command (see [`hides_ask_rule`]).
+    ClaudeCode,
     /// `rtk hook <agent>` — decides in this process, against the host's own
     /// permission rules.
     InProcess(Host),
@@ -326,7 +362,8 @@ impl AgentPath {
             // (see `hook_cmd`'s `vscode_response` and `copilot_cli_response`).
             "antigravity" => Some(Self::InProcess(Host::Antigravity)),
             "cline" | "kilocode" | "kimi" | "windsurf" => Some(Self::RulesOnly),
-            "claude" | "copilot" => Some(Self::InProcess(Host::Claude)),
+            "claude" => Some(Self::ClaudeCode),
+            "copilot" => Some(Self::InProcess(Host::Claude)),
             "codex" => Some(Self::InProcess(Host::Codex)),
             "trae" => Some(Self::InProcess(Host::Trae)),
             "cursor" => Some(Self::InProcess(Host::Cursor)),
@@ -370,6 +407,7 @@ impl AgentPath {
     /// The verdict this agent's hook would judge `cmd` against.
     fn verdict(&self, cmd: &str) -> PermissionVerdict {
         match self {
+            Self::ClaudeCode => check_command_for(cmd, Host::Claude),
             Self::InProcess(host) => check_command_for(cmd, *host),
             // `rtk rewrite` always reads Claude Code's rules, for every
             // delegate. Naming a host changes what is done with the verdict,
@@ -385,7 +423,7 @@ impl AgentPath {
     fn approval_owner(&self) -> ApprovalOwner {
         match self {
             Self::ViaRewrite(owner) => *owner,
-            Self::InProcess(_) | Self::RulesOnly => ApprovalOwner::Rtk,
+            Self::ClaudeCode | Self::InProcess(_) | Self::RulesOnly => ApprovalOwner::Rtk,
         }
     }
 
@@ -394,14 +432,81 @@ impl AgentPath {
     /// relaxing the default ask the agent would only ask about twice.
     pub(crate) fn decide(&self, cmd: &str) -> HookDecision {
         let verdict = self.verdict(cmd);
-        self.approval_owner()
-            .apply(decide_for_agent(cmd, verdict), verdict)
+        let decision = self
+            .approval_owner()
+            .apply(decide_for_agent(cmd, verdict), verdict);
+        if matches!(self, Self::ClaudeCode) && hides_ask_rule(cmd, &decision, verdict) {
+            return HookDecision::Defer;
+        }
+        decision
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- #4644: an explicit ask rule stays visible to Claude Code ---
+
+    fn rules(rules: &[&str]) -> Vec<String> {
+        rules.iter().map(|r| r.to_string()).collect()
+    }
+
+    #[test]
+    fn an_ask_rule_decides_when_it_names_a_segment() {
+        use crate::hooks::permissions::ask_rule_decides_with_rules;
+        let asks = rules(&["git push *"]);
+        let allows = rules(&["git *"]);
+        for cmd in ["git push origin main", "git status && git push origin main"] {
+            assert!(
+                ask_rule_decides_with_rules(cmd, &[], &asks, &allows, &[]),
+                "{cmd}"
+            );
+        }
+        assert!(!ask_rule_decides_with_rules(
+            "git status",
+            &[],
+            &asks,
+            &allows,
+            &[]
+        ));
+        assert!(!ask_rule_decides_with_rules(
+            "git push origin main",
+            &[],
+            &[],
+            &allows,
+            &[]
+        ));
+    }
+
+    /// RTK raises `Ask` for a shell wrapper itself; with no rule behind it,
+    /// that ask must not withhold the wrapper's rewrite.
+    #[test]
+    fn a_wrapper_ask_is_not_an_ask_rule() {
+        use crate::hooks::permissions::ask_rule_decides_with_rules;
+        let cmd = r#"bash -c "head foo && grep -R bar .""#;
+        assert!(!ask_rule_decides_with_rules(
+            cmd,
+            &[],
+            &rules(&["git push *"]),
+            &rules(&["*"]),
+            &[]
+        ));
+    }
+
+    /// `rtk hook check --agent claude` must describe `rtk hook claude`, while
+    /// Copilot, which shares Claude Code's rules but not its hook, is unchanged.
+    #[test]
+    fn only_the_claude_agent_resolves_to_the_claude_code_path() {
+        assert!(matches!(
+            AgentPath::lookup("claude"),
+            Some(AgentPath::ClaudeCode)
+        ));
+        assert!(matches!(
+            AgentPath::lookup("copilot"),
+            Some(AgentPath::InProcess(Host::Claude))
+        ));
+    }
 
     // --- #3864: Claude Code worktree isolation ---
 

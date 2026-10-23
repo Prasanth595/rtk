@@ -87,6 +87,11 @@ pub(crate) fn track_tee_read(cmd: &str) {
 /// about, and [`decision::ApprovalOwner::apply`] cannot transform a
 /// [`HookDecision::Deny`]: an explicit deny still reaches this function as
 /// `Deny` and still renders as exit 2, for every delegate, named or not.
+///
+/// `RTK_REWRITE_HOST=claude`, set by the Claude Code shell hooks, renders an
+/// ask that one of the user's ask rules decided as exit 1 instead of 3: Claude
+/// Code matches its rules against the rewritten command, so the rewrite would
+/// hide that rule (#4644, see [`decision::hides_ask_rule`]).
 pub fn run(cmd: &str) -> anyhow::Result<()> {
     // `rtk rewrite` has one rule source for every delegate that shells out to
     // it -- hermes, omp, opencode, openclaw, pi -- and that is `~/.claude`'s
@@ -94,8 +99,12 @@ pub fn run(cmd: &str) -> anyhow::Result<()> {
     // instead (`permissions::Host`). What a delegate may say about itself is
     // only who owns approval, never whose rules apply.
     let verdict = check_command(cmd);
-    let decided =
+    let mut decided =
         decision::ApprovalOwner::from_env().apply(decision::decide(cmd, verdict), verdict);
+    if decision::host_is_claude_code_from_env() && decision::hides_ask_rule(cmd, &decided, verdict)
+    {
+        decided = HookDecision::Defer;
+    }
     if !matches!(decided, HookDecision::Deny) {
         track_tee_read(cmd);
     }

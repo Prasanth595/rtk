@@ -214,6 +214,45 @@ pub(crate) fn check_command_with_rules_and_prefixes(
     }
 }
 
+/// Whether one of `host`'s ask rules is what makes `cmd` an [`PermissionVerdict::Ask`].
+///
+/// `Ask` also comes from constructs RTK cannot attest (a shell wrapper, a prefix
+/// chain past the peel's cap) with no rule involved. Only a verdict that drops
+/// out of `Ask` once the ask rules are removed names a rule the user wrote.
+pub(crate) fn ask_rule_decides(cmd: &str, host: Host) -> bool {
+    let (deny_rules, ask_rules, allow_rules) = load_rules_for(host);
+    let (_, transparent_prefixes) = crate::core::config::hook_rewrite_params();
+    ask_rule_decides_with_rules(
+        cmd,
+        &deny_rules,
+        &ask_rules,
+        &allow_rules,
+        &transparent_prefixes,
+    )
+}
+
+/// [`ask_rule_decides`] with the rules supplied by the caller.
+pub(crate) fn ask_rule_decides_with_rules(
+    cmd: &str,
+    deny_rules: &[String],
+    ask_rules: &[String],
+    allow_rules: &[String],
+    transparent_prefixes: &[String],
+) -> bool {
+    let verdict = |asks: &[String]| {
+        check_command_with_rules_and_prefixes(
+            cmd,
+            deny_rules,
+            asks,
+            allow_rules,
+            transparent_prefixes,
+        )
+    };
+    !ask_rules.is_empty()
+        && verdict(ask_rules) == PermissionVerdict::Ask
+        && verdict(&[]) != PermissionVerdict::Ask
+}
+
 fn check_shell_wrapper_permissions(
     segments: &[&str],
     deny_rules: &[String],
