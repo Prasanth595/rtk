@@ -1,5 +1,6 @@
 //! Filters Ruff linter and formatter output.
 
+use crate::core::args_utils;
 use crate::core::config;
 use crate::core::runner;
 use crate::core::shell::display_args;
@@ -49,6 +50,7 @@ struct RuffDiagnostic {
 }
 
 pub fn run(args: &[String], verbose: u8) -> Result<i32> {
+    let args = &args_utils::restore_double_dash(args);
     let is_check = is_check_invocation(args);
 
     let is_format = args.iter().any(|a| a == "format");

@@ -1007,6 +1007,70 @@ pub(super) fn run_hook_only_mode(
     Ok(())
 }
 
+/// Detailed hook status for Claude Code (used by `rtk discover` and warning coordinator).
+pub fn hook_status() -> crate::hooks::hook_check::HookStatus {
+    let Ok(claude_dir) = resolve_claude_dir() else {
+        return crate::hooks::hook_check::HookStatus::Ok;
+    };
+    if !claude_dir.exists() {
+        return crate::hooks::hook_check::HookStatus::Ok;
+    }
+
+    // Check for new binary command in settings.json first
+    if binary_hook_registered(&claude_dir) {
+        // If old script file still exists alongside new command, report Outdated
+        // (migration not complete — user should run `rtk init -g` to clean up)
+        let old_hook = claude_dir.join(HOOKS_SUBDIR).join(REWRITE_HOOK_FILE);
+        if old_hook.exists() {
+            return crate::hooks::hook_check::HookStatus::Outdated;
+        }
+        return crate::hooks::hook_check::HookStatus::Ok;
+    }
+
+    // Fall back to legacy script file check
+    let hook_path = claude_dir.join(HOOKS_SUBDIR).join(REWRITE_HOOK_FILE);
+    if !hook_path.exists() {
+        return crate::hooks::hook_check::HookStatus::Missing;
+    }
+    let Ok(content) = fs::read_to_string(&hook_path) else {
+        return crate::hooks::hook_check::HookStatus::Outdated; // exists but unreadable — treat as needs-update
+    };
+    if crate::hooks::hook_check::parse_hook_version(&content)
+        >= crate::hooks::hook_check::CURRENT_HOOK_VERSION
+    {
+        crate::hooks::hook_check::HookStatus::Ok
+    } else {
+        crate::hooks::hook_check::HookStatus::Outdated
+    }
+}
+
+/// Check if the native binary command is registered in settings.json
+fn binary_hook_registered(claude_dir: &Path) -> bool {
+    let settings_path = claude_dir.join(SETTINGS_JSON);
+    let content = match fs::read_to_string(&settings_path) {
+        Ok(c) if !c.trim().is_empty() => c,
+        _ => return false,
+    };
+    let root: serde_json::Value = match from_json_str(&content) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let pre_tool_use = match root
+        .get("hooks")
+        .and_then(|h| h.get(PRE_TOOL_USE_KEY))
+        .and_then(|p| p.as_array())
+    {
+        Some(arr) => arr,
+        None => return false,
+    };
+    pre_tool_use
+        .iter()
+        .filter_map(|entry| entry.get("hooks")?.as_array())
+        .flatten()
+        .filter_map(|hook| hook.get("command")?.as_str())
+        .any(crate::hooks::is_claude_hook_command)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2151,6 +2215,202 @@ mod tests {
 
             let after = fs::read_to_string(&claude_md).unwrap();
             assert_eq!(after, malformed, "File must not be modified when malformed");
+        });
+    }
+
+    #[test]
+    fn test_binary_hook_registered_accepts_absolute_rtk_path() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        fs::write(
+            tmp.path().join(SETTINGS_JSON),
+            r#"{
+                "hooks": {
+                    "PreToolUse": [{
+                        "matcher": "Bash",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "/opt/homebrew/bin/rtk hook claude",
+                            "timeout": 5
+                        }]
+                    }]
+                }
+            }"#,
+        )
+        .expect("write settings");
+
+        assert!(binary_hook_registered(tmp.path()));
+    }
+
+    #[test]
+    fn test_hook_status_dangling_script_in_settings_is_missing() {
+        let tmp = test_isolation::tempdir();
+        with_claude_dir_override(&tmp, |claude_dir| {
+            fs::write(
+                claude_dir.join(SETTINGS_JSON),
+                r#"{
+                    "hooks": {
+                        "PreToolUse": [{
+                            "matcher": "Bash",
+                            "hooks": [{
+                                "type": "command",
+                                "command": "~/.claude/hooks/rtk-rewrite.sh"
+                            }]
+                        }]
+                    }
+                }"#,
+            )
+            .expect("write settings");
+
+            assert_eq!(
+                hook_status(),
+                crate::hooks::hook_check::HookStatus::Missing,
+                "settings.json pointing at deleted rtk-rewrite.sh must report Missing"
+            );
+        });
+    }
+
+    #[test]
+    fn test_hook_status_binary_hook_with_leftover_script_is_outdated() {
+        let tmp = test_isolation::tempdir();
+        with_claude_dir_override(&tmp, |claude_dir| {
+            let hooks_dir = claude_dir.join(HOOKS_SUBDIR);
+            fs::create_dir_all(&hooks_dir).expect("create hooks dir");
+            fs::write(
+                hooks_dir.join(REWRITE_HOOK_FILE),
+                format!(
+                    "#!/usr/bin/env bash\n# rtk-hook-version: {}\n",
+                    crate::hooks::hook_check::CURRENT_HOOK_VERSION
+                ),
+            )
+            .expect("write leftover script");
+            fs::write(
+                claude_dir.join(SETTINGS_JSON),
+                r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"rtk hook claude"}]}]}}"#,
+            )
+            .expect("write settings");
+
+            assert_eq!(
+                hook_status(),
+                crate::hooks::hook_check::HookStatus::Outdated,
+                "a leftover legacy script next to the binary hook means migration is unfinished"
+            );
+        });
+    }
+
+    #[test]
+    fn test_hook_status_v4_script_in_settings_is_ok() {
+        let tmp = test_isolation::tempdir();
+        with_claude_dir_override(&tmp, |claude_dir| {
+            let hooks_dir = claude_dir.join(HOOKS_SUBDIR);
+            fs::create_dir_all(&hooks_dir).expect("create hooks dir");
+            fs::write(
+                hooks_dir.join(REWRITE_HOOK_FILE),
+                "#!/usr/bin/env bash\n# rtk-hook-version: 4\n",
+            )
+            .expect("write v4 script");
+            fs::write(
+                claude_dir.join(SETTINGS_JSON),
+                r#"{
+                    "hooks": {
+                        "PreToolUse": [{
+                            "matcher": "Bash",
+                            "hooks": [{
+                                "type": "command",
+                                "command": "~/.claude/hooks/rtk-rewrite.sh"
+                            }]
+                        }]
+                    }
+                }"#,
+            )
+            .expect("write settings");
+
+            assert_eq!(
+                hook_status(),
+                crate::hooks::hook_check::HookStatus::Ok,
+                "registered v4 script must report Ok, not Outdated"
+            );
+        });
+    }
+
+    #[test]
+    fn test_hook_status_post_tool_use_only_is_missing() {
+        let tmp = test_isolation::tempdir();
+        with_claude_dir_override(&tmp, |claude_dir| {
+            fs::write(
+                claude_dir.join(SETTINGS_JSON),
+                r#"{
+                    "hooks": {
+                        "PostToolUse": [{
+                            "matcher": "Bash",
+                            "hooks": [{
+                                "type": "command",
+                                "command": "rtk hook claude"
+                            }]
+                        }]
+                    }
+                }"#,
+            )
+            .expect("write settings");
+
+            assert_eq!(
+                hook_status(),
+                crate::hooks::hook_check::HookStatus::Missing,
+                "PostToolUse-only entry must report Missing"
+            );
+        });
+    }
+
+    #[test]
+    fn test_hook_status_unreadable_script_is_outdated() {
+        let tmp = test_isolation::tempdir();
+        with_claude_dir_override(&tmp, |claude_dir| {
+            let hook_path = claude_dir.join(HOOKS_SUBDIR).join(REWRITE_HOOK_FILE);
+            fs::create_dir_all(hook_path.parent().unwrap()).expect("create hooks dir");
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::write(&hook_path, "#!/usr/bin/env bash\n# rtk-hook-version: 4\n")
+                    .expect("write script");
+                let mut perms = fs::metadata(&hook_path).expect("meta").permissions();
+                perms.set_mode(0o000);
+                fs::set_permissions(&hook_path, perms.clone()).expect("chmod 000");
+
+                // If running as root in a container, mode 000 is bypassed; fall back to
+                // making the path a directory so read_to_string deterministically fails.
+                if fs::read_to_string(&hook_path).is_ok() {
+                    perms.set_mode(0o644);
+                    let _ = fs::set_permissions(&hook_path, perms);
+                    fs::remove_file(&hook_path).expect("remove file");
+                    fs::create_dir_all(&hook_path).expect("create dir at hook_path");
+                    assert_eq!(
+                        hook_status(),
+                        crate::hooks::hook_check::HookStatus::Outdated,
+                        "unreadable hook path must report Outdated"
+                    );
+                    return;
+                }
+
+                let status = hook_status();
+                perms.set_mode(0o644);
+                fs::set_permissions(&hook_path, perms).expect("restore chmod 644");
+                assert_eq!(
+                    status,
+                    crate::hooks::hook_check::HookStatus::Outdated,
+                    "unreadable script file must report Outdated"
+                );
+            }
+
+            #[cfg(not(unix))]
+            {
+                // On non-Unix, a directory at `hook_path` makes `exists()` true and `read_to_string()` Err.
+                fs::create_dir_all(&hook_path).expect("create dir at hook_path");
+                assert_eq!(
+                    hook_status(),
+                    crate::hooks::hook_check::HookStatus::Outdated,
+                    "unreadable hook path must report Outdated"
+                );
+            }
         });
     }
 }
