@@ -192,6 +192,11 @@ pub fn fetch(granularity: Granularity) -> Result<Option<Vec<CcusagePeriod>>> {
             periods = aggregate_periods(periods, subcommand)?;
         }
 
+        if matches!(granularity, Granularity::Monthly) {
+            // Per-project grouping repeats a month once per project.
+            periods = aggregate_periods(periods, subcommand)?;
+        }
+
         return Ok(Some(periods));
     }
 }
