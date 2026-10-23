@@ -568,6 +568,7 @@ const SUBCOMMAND_ROUTERS: &[&str] = &[
     "kubectl",
     "mvn",
     "next",
+    "nix",
     "npm",
     "php",
     "pip",
