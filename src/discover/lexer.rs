@@ -874,7 +874,7 @@ fn resolve_word_text(raw: &str) -> String {
 /// Quote-aware split of a single shell command into argv-ready words: quotes
 /// stripped, backslash escapes resolved — for callers that hand the result
 /// straight to `Command::new`/exec or compare it against literal words
-/// (`hooks/mod.rs::is_claude_hook_command`, `rtk proxy` arg-splitting).
+/// (`hooks/mod.rs::is_claude_hook_command`, `rtk bypass` arg-splitting).
 pub fn shell_split(input: &str) -> Vec<String> {
     coalesce_words(input, &tokenize(input))
         .into_iter()
