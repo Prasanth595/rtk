@@ -1394,6 +1394,12 @@ enum GitCommands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// List tree entries; plain path lists are folded by directory
+    LsTree {
+        /// Git ls-tree arguments (tree-ish, paths, flags)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Passthrough: runs any unsupported git subcommand directly
     #[command(external_subcommand)]
     Other(Vec<OsString>),
@@ -2733,6 +2739,13 @@ fn run_cli() -> Result<i32> {
                 GitCommands::Other(args) => {
                     git_cmd::run_passthrough(&args, &global_args, cli.verbose)?
                 }
+                GitCommands::LsTree { args } => git_cmd::run(
+                    git_cmd::GitCommand::LsTree,
+                    &args,
+                    None,
+                    cli.verbose,
+                    &global_args,
+                )?,
             }
         }
 
