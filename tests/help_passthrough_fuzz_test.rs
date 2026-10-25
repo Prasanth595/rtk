@@ -588,4 +588,3 @@ fn git_is_skipped_on_windows_to_prevent_browser_launch() {
 fn git_is_not_skipped_on_unix() {
     assert!(!UNIX_ONLY.contains(&"git"));
 }
-
