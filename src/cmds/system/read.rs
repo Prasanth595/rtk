@@ -2,6 +2,7 @@
 
 use crate::core::filter::{self, FilterLevel, Language};
 use crate::core::guard::never_worse;
+use crate::core::line_cap;
 use crate::core::shell::quote_word;
 use crate::core::tracking;
 use anyhow::{Context, Result};
@@ -44,6 +45,7 @@ pub fn run(
         && let Some(head) = head_lines
     {
         let window = read_head_lines(file, head)?;
+        let window = line_cap::cap_long_line_bytes(&window, &cat_label(file));
         io::stdout()
             .lock()
             .write_all(&window)
@@ -68,15 +70,16 @@ pub fn run(
         && !line_numbers
         && let Some(window) = byte_line_window(&bytes, head_lines, tail_lines)
     {
+        let window = line_cap::cap_long_line_bytes(window, &cat_label(file));
         io::stdout()
             .lock()
-            .write_all(window)
+            .write_all(&window)
             .context("Failed to write line window")?;
         timer.track(
             &cat_label(file),
             "rtk read",
             &String::from_utf8_lossy(&bytes),
-            &String::from_utf8_lossy(window),
+            &String::from_utf8_lossy(&window),
         );
         return Ok(());
     }
@@ -132,9 +135,10 @@ pub fn run(
     } else {
         (content.clone(), filtered.clone())
     };
-    let shown = never_worse(&raw, &rtk_output);
+    let label = cat_label(file);
+    let shown = line_cap::cap_long_lines(never_worse(&raw, &rtk_output), &label);
     print!("{}", shown);
-    timer.track(&cat_label(file), "rtk read", &raw, shown);
+    timer.track(&label, "rtk read", &raw, &shown);
     Ok(())
 }
 
@@ -162,15 +166,16 @@ pub fn run_stdin(
         && !line_numbers
         && let Some(window) = byte_line_window(&bytes, head_lines, tail_lines)
     {
+        let window = line_cap::cap_long_line_bytes(window, "cat - (stdin)");
         io::stdout()
             .lock()
-            .write_all(window)
+            .write_all(&window)
             .context("Failed to write line window")?;
         timer.track(
             "cat - (stdin)",
             "rtk read -",
             &String::from_utf8_lossy(&bytes),
-            &String::from_utf8_lossy(window),
+            &String::from_utf8_lossy(&window),
         );
         return Ok(());
     }
@@ -211,10 +216,10 @@ pub fn run_stdin(
     } else {
         (content.clone(), filtered.clone())
     };
-    let shown = never_worse(&raw, &rtk_output);
+    let shown = line_cap::cap_long_lines(never_worse(&raw, &rtk_output), "cat - (stdin)");
     print!("{}", shown);
 
-    timer.track("cat - (stdin)", "rtk read -", &raw, shown);
+    timer.track("cat - (stdin)", "rtk read -", &raw, &shown);
     Ok(())
 }
 

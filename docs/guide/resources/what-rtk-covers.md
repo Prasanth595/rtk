@@ -118,6 +118,8 @@ RTK reduces **bash output bytes** — the only thing it controls. Those bytes ar
 | `cat` / `head` / `tail <file>` | Smart file reading via `rtk read` |
 | `rtk smart <file>` | 2-line heuristic code summary (signatures only) |
 
+In `grep`, `rg` and `rtk read` output, a line longer than 2,000 characters (a JSONL record, minified JavaScript) is cut there and says how to get the rest with `rtk recall` (`[limits] max_line_chars`).
+
 ## Cloud and Data
 
 | Command | What changes |
