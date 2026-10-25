@@ -573,3 +573,19 @@ fn rtks_own_help_is_still_rtks() {
         );
     }
 }
+
+/// Git for Windows opens HTML help in the default browser when `--help` is requested,
+/// so it is excluded from the fuzz run on Windows to avoid spawning browser windows.
+#[cfg(windows)]
+#[test]
+fn git_is_skipped_on_windows_to_prevent_browser_launch() {
+    assert!(UNIX_ONLY.contains(&"git"));
+}
+
+/// On non-Windows platforms, git help passthrough must be checked against native git.
+#[cfg(not(windows))]
+#[test]
+fn git_is_not_skipped_on_unix() {
+    assert!(!UNIX_ONLY.contains(&"git"));
+}
+
