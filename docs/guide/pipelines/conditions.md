@@ -38,6 +38,8 @@ A key not listed for the rule's subject and event is refused on a control rule (
 
 `file_lines` and `file_bytes` are computed under a cost cap (size first; lines counted only below a threshold) so the hook stays within budget on a huge file.
 
+**`exit_code`** (after a shell call): `0` when the harness did not report a failure (Claude Code sends no exit status on success, so this is inferred), `N` when a failed call's error starts with `Exit code N`, and absent when a failure carries no such line (timeout, spawn failure) or the call was interrupted. Failed calls reach [note rules](./writing-pipelines.md#notes-after-a-tool) only, since their output cannot be replaced. Earlier releases never set the fact, so a rule such as `when = { exit_code = 0 }` never matched; it now matches every successful shell call.
+
 **Output `format`** (after a tool): `term` · `json` · `web` · `matches` (grep-style `path:line:content`) · `lockfile`.
 
 **MCP output.** An `mcp` rule reads the two response shapes RTK can put back unambiguously: a `result` string, or a `content` array whose every block is text. A response carrying an image, an embedded resource or a mixed array is passed through untouched — there is no way to rewrite part of it and leave the rest coherent.

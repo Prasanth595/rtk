@@ -259,6 +259,7 @@ emit = "note"
 
 - Note rules and output rules are evaluated as two separate lists. A note rule never stops the output rules, whatever its `continue`, and it does not hold back the `any` output rules for its subject; `continue` only chains note rules among themselves.
 - No size guard applies: a single failing line is enough for a note, while the output rules still skip results under `min_size`.
+- Note rules also read failed calls (Claude Code's `PostToolUseFailure`), whose output cannot be replaced: the error text is the result, and `exit_code` tells a failure from a success (see [Conditions](./conditions.md#hook-conditions)). Run `rtk init -g` after adding the first note rule so that event is registered.
 - A note that is empty, or repeats the result unchanged, is not sent. A `shadow` note rule is logged, not sent.
 - The note pass costs nothing when no note rule is active for the subject (or under `any`): no facts are built, so no transcript read and no classifier call.
 - Only Claude Code receives notes today; it is the only agent whose `after_tool` hook RTK installs (see [Agent Coverage](../resources/agent-coverage.md#what-this-means-per-pipeline-position)).

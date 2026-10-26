@@ -110,4 +110,4 @@ Nothing to do. `rtk:default` is the RTK you had; there is no migration command.
 | `filters.toml` (user or project) | unchanged — still the home of custom command filters, read by the rewrite as before |
 | `[hooks] exclude_commands`, `transparent_prefixes` | unchanged, in `config.toml` |
 | `[awareness] level` | unchanged; equivalent to `[override.rtk-awareness] level = …` if you prefer it in the pipeline |
-| `PreToolUse` hook | unchanged; `PostToolUse` is registered only if you enable `rtk:posthook` |
+| `PreToolUse` hook | unchanged; `PostToolUse` is registered only if you enable `rtk:posthook` or add an `after_tool` rule, and `PostToolUseFailure` only when a [note rule](./writing-pipelines.md#notes-after-a-tool) is active |
