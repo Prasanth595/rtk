@@ -159,6 +159,11 @@ pub const VIBE_PROMPT_FILE: &str = "rtk.md";
 pub const VIBE_HOOK_NAME: &str = "rtk-rewrite";
 pub const VIBE_BASH_MATCH: &str = "bash";
 
+/// DeepSeek Harness (DSH) home directory: `$DSH_HOME` or `~/.dsh`.
+pub const DSH_DIR: &str = ".dsh";
+/// Environment variable that overrides the DSH home directory.
+pub const DSH_HOME_ENV: &str = "DSH_HOME";
+
 #[cfg(all(test, feature = "engine"))]
 mod tests {
     use super::*;
