@@ -404,20 +404,20 @@ pub const RULES: &[RtkRule] = &[
     RtkRule {
         pattern: r"^yarn\s+ng\s+test\b",
         rtk_cmd: "rtk yarn",
+        pipeline_safety: PipelineSafety::ProducerOnly,
         rewrite_prefixes: &["yarn"],
         category: "Tests",
         savings_pct: 85.0,
-        subcmd_savings: &[],
-        subcmd_status: &[],
+        ..RtkRule::DEFAULT
     },
     RtkRule {
         pattern: r"^(?:[^\s]+/)*ng\s+test\b",
         rtk_cmd: "rtk ng",
+        pipeline_safety: PipelineSafety::ProducerOnly,
         rewrite_prefixes: &["ng"],
         category: "Tests",
         savings_pct: 85.0,
-        subcmd_savings: &[],
-        subcmd_status: &[],
+        ..RtkRule::DEFAULT
     },
     RtkRule {
         pattern: r"^((p?np(m|x)|p?npm\s+(exec|run|run-script)|npm\s+(rum|urn|x)|pnpm\s+dlx)\s+)?playwright(?:\s|$|[;|&()<>])",

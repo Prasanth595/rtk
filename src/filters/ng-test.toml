@@ -1,8 +1,6 @@
-schema_version = 1
-
 [filters.ng-test]
 description = "Angular Karma (ng test) — failures, stack traces, summary"
-match_command = "\\bng test\\b"
+match_command = "^(?:[^\\s]+/)*ng\\s+test\\b|^(?:yarn|npx|pnpm)\\s+ng\\s+test\\b"
 strip_ansi = true
 filter_stderr = true
 strip_lines_matching = [

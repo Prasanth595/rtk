@@ -2028,13 +2028,13 @@ fn rewrite_command_part(rule: &RtkRule, cmd_part: &str) -> Option<String> {
         }
     }
 
-    // TOML-only tools invoked via a path or wrapper (e.g. /usr/local/bin/make).
-    // Prepend `rtk` to the original command so run_fallback executes the real binary path.
+    // Path/wrapper invocations that matched a rule by pattern but not by rewrite
+    // prefix (e.g. node_modules/.bin/ng). Prepend `rtk`; caller re-attaches redirects.
     let lookup = crate::core::toml_filter::lookup_command_for_filter(cmd_part);
     if crate::core::toml_filter::find_matching_filter(&lookup).is_some()
         || crate::core::toml_filter::find_matching_filter(cmd_part).is_some()
     {
-        return Some(format!("rtk {}{}", cmd_part, redirect_suffix));
+        return Some(format!("rtk {}", cmd_part));
     }
 
     None
