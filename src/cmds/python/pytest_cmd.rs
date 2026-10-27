@@ -1645,6 +1645,34 @@ Failures:
     }
 
     #[test]
+    fn test_filter_pytest_captured_banner_is_not_a_failure() {
+        // Printed banners sit under the captured-stdout section. They match the
+        // loose header shape, and they are not the next failure (#4748).
+        let output = r#"=== FAILURES ===
+___ test_banner ___
+test_banner.py:6: in test_banner
+    assert 1 == 2, "real failure"
+E   AssertionError: real failure
+E   assert 1 == 2
+----------------------------- Captured stdout call -----------------------------
+_____ stage one _____
+_ stage two _
+E   not an error
+=== 1 failed in 0.01s ==="#;
+
+        assert_eq!(
+            filter_pytest_output(output),
+            r#"Pytest: 0 passed, 1 failed in 0.01s
+
+Failures:
+1. [FAIL] test_banner
+     test_banner.py:6: in test_banner
+     E   AssertionError: real failure
+     E   assert 1 == 2"#
+        );
+    }
+
+    #[test]
     fn test_filter_pytest_locals_repr_is_never_a_frame() {
         let output =
             include_str!("../../../tests/fixtures/pytest_tb_long_locals_frame_repr_raw.txt");
