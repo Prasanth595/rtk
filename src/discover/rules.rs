@@ -816,11 +816,11 @@ pub const RULES: &[RtkRule] = &[
     RtkRule {
         pattern: r"^(?:[^\s]+/)*bru(?:\.cmd)?(\s|$)|^(?:npx|pnpm|yarn)\s+bru\b",
         rtk_cmd: "rtk bru",
+        pipeline_safety: PipelineSafety::ProducerOnly,
         rewrite_prefixes: &["bru"],
         category: "Tests",
         savings_pct: 65.0,
-        subcmd_savings: &[],
-        subcmd_status: &[],
+        ..RtkRule::DEFAULT
     },
     RtkRule {
         pattern: r"^composer\s+(install|update|require)\b",

@@ -1,8 +1,6 @@
-schema_version = 1
-
 [filters.bru]
 description = "Bruno CLI (@usebruno/cli) — requests, tests, summary"
-match_command = "\\bbru\\b"
+match_command = "^(?:[^\\s]+/)*bru(?:\\.cmd)?(?:\\s|$)|^(?:npx|pnpm|yarn)\\s+bru\\b"
 strip_ansi = true
 keep_lines_matching = [
   "^[A-Za-z][A-Za-z0-9_/\\-]+ \\([0-9]{3}",
