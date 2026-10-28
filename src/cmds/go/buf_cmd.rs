@@ -6,6 +6,7 @@ use crate::core::arg_tokenizer::{self, Dialect, Token, TokenKind, ValueSpec};
 use crate::core::args_utils;
 use crate::core::guard::never_worse;
 use crate::core::runner;
+use crate::core::shell::display_args;
 use crate::core::tee;
 use crate::core::truncate::{self, CAP_ERRORS, CAP_LIST, CAP_WARNINGS};
 use crate::core::utils::resolved_command;
@@ -316,7 +317,7 @@ fn run_diagnostics(
     runner::run_filtered_with_exit(
         cmd,
         bin.tool_name(),
-        &args.join(" "),
+        &display_args(args),
         move |output, exit_code| {
             if verbose > 2 {
                 eprintln!("{output}");
@@ -566,7 +567,7 @@ fn run_format_diff(bin: BufBin, args: &[String], verbose: u8) -> Result<i32> {
     runner::run_filtered_with_exit(
         cmd,
         bin.tool_name(),
-        &args.join(" "),
+        &display_args(args),
         move |stdout, exit_code| {
             if verbose > 2 {
                 eprintln!("{stdout}");
@@ -691,7 +692,7 @@ fn run_generate(bin: BufBin, args: &[String], verbose: u8) -> Result<i32> {
     runner::run_filtered_with_exit(
         cmd,
         bin.tool_name(),
-        &args.join(" "),
+        &display_args(args),
         move |output, exit_code| {
             if verbose > 2 {
                 eprintln!("{output}");
