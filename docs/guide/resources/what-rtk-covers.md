@@ -78,6 +78,9 @@ RTK reduces **bash output bytes** — the only thing it controls. Those bytes ar
 |---------|--------------|
 | `go test` | Failures only |
 | `golangci-lint run` | Violations grouped by file |
+| `buf lint` / `build` / `breaking` | Diagnostics grouped by rule, compile cascades collapsed |
+| `buf format -d` | One line per file with +/- counts |
+| `buf generate` (failure) | Plugin panic cut after its first frame, `Failure:` line kept |
 | `go build` | Errors only |
 
 ## Ruby
