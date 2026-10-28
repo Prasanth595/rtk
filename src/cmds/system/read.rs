@@ -2,6 +2,7 @@
 
 use crate::core::filter::{self, FilterLevel, Language};
 use crate::core::guard::never_worse;
+use crate::core::shell::quote_word;
 use crate::core::tracking;
 use anyhow::{Context, Result};
 use std::fs;
@@ -19,8 +20,45 @@ pub fn run(
 ) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
+    // The one core touch: `rtk read` evaluates the pipeline's
+    // `hook.before_tool.read` rules before printing. A deny/route rule prints
+    // its message instead of the file — covering `cat big.java` too, since
+    // the rewrite turns it into `rtk read big.java`.
+    let whole_file = max_lines.is_none() && head_lines.is_none() && tail_lines.is_none();
+    if let Some(decision) = crate::core::pipeline_config::before_read_decision(file, whole_file) {
+        println!("{}", decision.message);
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        std::process::exit(1);
+    }
+
     if verbose > 0 {
         eprintln!("Reading: {} (filter: {})", file.display(), level);
+    }
+
+    // `head -n N` stops as soon as it has N lines. Reading the file whole first gives the same
+    // answer on a regular file and no answer at all on a device node or a FIFO nobody closes,
+    // which is reachable now that `head -n N` rewrites to this.
+    if level == FilterLevel::None
+        && !line_numbers
+        && let Some(head) = head_lines
+    {
+        let window = read_head_lines(file, head)?;
+        io::stdout()
+            .lock()
+            .write_all(&window)
+            .context("Failed to write line window")?;
+        timer.track_bytes(
+            &cat_label(file),
+            "rtk read",
+            // The bytes `cat` would have written. Unknowable without reading the file, which is
+            // the whole point of not doing that, so it is taken from the size on disk -- and
+            // for the unbounded sources above there is no size, only a 0 that would book the
+            // window as pure cost. Claim nothing there.
+            regular_file_len(file).unwrap_or(window.len()),
+            &String::from_utf8_lossy(&window),
+        );
+        return Ok(());
     }
 
     // Read file content
@@ -39,7 +77,7 @@ pub fn run(
             .write_all(window)
             .context("Failed to write raw bytes")?;
         timer.track(
-            &format!("cat {}", file.display()),
+            &cat_label(file),
             "rtk read",
             &String::from_utf8_lossy(&bytes),
             &String::from_utf8_lossy(window),
@@ -88,7 +126,7 @@ pub fn run(
         );
     }
 
-    filtered = apply_line_window(&filtered, max_lines, head_lines, tail_lines, &lang);
+    filtered = apply_line_window(&filtered, max_lines, head_lines, tail_lines);
 
     let (raw, rtk_output) = if line_numbers {
         (
@@ -100,7 +138,7 @@ pub fn run(
     };
     let shown = never_worse(&raw, &rtk_output);
     print!("{}", shown);
-    timer.track(&format!("cat {}", file.display()), "rtk read", &raw, shown);
+    timer.track(&cat_label(file), "rtk read", &raw, shown);
     Ok(())
 }
 
@@ -171,7 +209,7 @@ pub fn run_stdin(
         );
     }
 
-    filtered = apply_line_window(&filtered, max_lines, head_lines, tail_lines, &lang);
+    filtered = apply_line_window(&filtered, max_lines, head_lines, tail_lines);
 
     let (raw, rtk_output) = if line_numbers {
         (
@@ -186,6 +224,11 @@ pub fn run_stdin(
 
     timer.track("cat - (stdin)", "rtk read -", &raw, shown);
     Ok(())
+}
+
+/// The tracked command for reading `file`, with the path quoted as one word.
+pub(crate) fn cat_label(file: &Path) -> String {
+    format!("cat {}", quote_word(&file.to_string_lossy()))
 }
 
 fn format_with_line_numbers(content: &str) -> String {
@@ -203,17 +246,67 @@ fn apply_line_window(
     max_lines: Option<usize>,
     head_lines: Option<usize>,
     tail_lines: Option<usize>,
-    lang: &Language,
 ) -> String {
     if let Some(window) = byte_line_window(content.as_bytes(), head_lines, tail_lines) {
         return String::from_utf8_lossy(window).into_owned();
     }
 
     if let Some(max) = max_lines {
-        return filter::smart_truncate(content, max, lang);
+        return filter::smart_truncate(content, max);
     }
 
     content.to_string()
+}
+
+/// How much is pulled from the file at a time. Only the lines asked for are ever read, so the
+/// chunk bounds how far past the `n`th newline that read can reach.
+const READ_CHUNK: usize = 8192;
+
+/// The first `n` newline-terminated lines of `file`, read in chunks and stopped at the `n`th
+/// newline so an endless source is never read past what was asked for. Short input, or input
+/// whose last line is unterminated, comes back whole, matching [`head_window`].
+///
+/// Only the unfiltered head window is served this way. A filter level or `--line-numbers`
+/// still needs the file whole -- `--tail-lines` inherently so -- and none of those is reachable
+/// from a `head` rewrite, which is what made this path the one that had to stop early.
+fn read_head_lines(file: &Path, n: usize) -> Result<Vec<u8>> {
+    let mut handle =
+        fs::File::open(file).with_context(|| format!("Failed to read file: {}", file.display()))?;
+    let mut window = Vec::new();
+    let mut chunk = [0u8; READ_CHUNK];
+    let mut seen = 0;
+    while seen < n {
+        let read = match handle.read(&mut chunk) {
+            Ok(read) => read,
+            // `fs::read`, which this replaces, retries this itself; a bare `read` does not,
+            // and turning a signal into a failed read would lose the window entirely.
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("Failed to read file: {}", file.display()));
+            }
+        };
+        if read == 0 {
+            break;
+        }
+        for &byte in &chunk[..read] {
+            window.push(byte);
+            if byte == b'\n' {
+                seen += 1;
+                if seen == n {
+                    break;
+                }
+            }
+        }
+    }
+    Ok(window)
+}
+
+/// `file`'s size on disk, and `None` for anything whose size says nothing about how much it
+/// will produce -- a device node, a FIFO, a socket.
+fn regular_file_len(file: &Path) -> Option<usize> {
+    let meta = fs::metadata(file).ok()?;
+    meta.is_file().then_some(meta.len() as usize)
 }
 
 /// First `n` lines, sliced on byte offsets rather than round-tripped through
@@ -294,8 +387,115 @@ fn byte_line_window(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::test_isolation;
     use std::io::Write;
     use tempfile::NamedTempFile;
+
+    #[test]
+    fn cat_label_quotes_a_path_as_one_word() {
+        assert_eq!(cat_label(Path::new("src/main.rs")), "cat src/main.rs");
+        assert_eq!(cat_label(Path::new("my notes.txt")), "cat 'my notes.txt'");
+    }
+
+    /// `read_head_lines` must agree with `head_window` byte-for-byte on every shape, since it
+    /// replaces it on the unfiltered path -- CRLF endings and an unterminated last line
+    /// included.
+    ///
+    /// The inputs have to span more than one `READ_CHUNK`, because reading across chunks is
+    /// the only thing the rewrite added: a set that all fits in the first chunk passes just as
+    /// happily with the loop stopped after that chunk.
+    #[test]
+    fn test_read_head_lines_matches_head_window() -> Result<()> {
+        let long_line = "x".repeat(READ_CHUNK * 2);
+        // A newline sitting exactly on a chunk boundary, and on either side of it.
+        let boundary = |at: usize| format!("{}\n{}\n", "y".repeat(at - 1), "z".repeat(100));
+
+        let mut contents: Vec<String> = [
+            "",
+            "a",
+            "a\n",
+            "a\nb\nc\n",
+            "a\nb\nc",
+            "a\r\nb\r\nc\r\n",
+            "\n\n\n",
+        ]
+        .iter()
+        .map(|c| (*c).to_string())
+        .collect();
+        contents.push(long_line.clone());
+        contents.push(format!("{long_line}\n"));
+        contents.push(boundary(READ_CHUNK));
+        contents.push(boundary(READ_CHUNK + 1));
+        contents.push(boundary(READ_CHUNK - 1));
+        // Many short lines over several chunks, so the Nth newline lands deep in.
+        contents.push((0..4000).map(|i| format!("line {i}\n")).collect());
+        // A CRLF straddling a chunk boundary: the `\r` and its `\n` must not come apart.
+        contents.push(format!(
+            "{}\r\n{}\r\n",
+            "w".repeat(READ_CHUNK - 1),
+            "v".repeat(50)
+        ));
+
+        for content in &contents {
+            let mut file = NamedTempFile::new()?;
+            file.write_all(content.as_bytes())?;
+            file.flush()?;
+            for n in [0, 1, 2, 3, 10, 1000, 4000] {
+                assert_eq!(
+                    read_head_lines(file.path(), n)?,
+                    head_window(content.as_bytes(), n),
+                    "content of {} bytes, n {n}",
+                    content.len()
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// The point of reading in chunks: a source with no end still returns. A FIFO nobody ever
+    /// closes stands in for the `/dev/urandom` case, which `head -n N` now rewrites to.
+    #[cfg(unix)]
+    #[test]
+    fn test_read_head_lines_returns_from_an_endless_source() -> Result<()> {
+        use std::io::Write as _;
+        let dir = tempfile::tempdir()?;
+        let fifo = dir.path().join("endless");
+        // Shelled out rather than called through libc: `unsafe` is not allowed outside proxy
+        // mode's signal handling.
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()?
+                .success(),
+            "mkfifo failed"
+        );
+
+        let writer_path = fifo.clone();
+        let writer = std::thread::spawn(move || {
+            let Ok(mut handle) = fs::OpenOptions::new().write(true).open(&writer_path) else {
+                return;
+            };
+            // Never closes on its own: the read side has to stop itself.
+            while handle.write_all(b"line\n").is_ok() {}
+        });
+
+        assert_eq!(read_head_lines(&fifo, 3)?, b"line\nline\nline\n");
+        drop(writer);
+        Ok(())
+    }
+
+    /// A device node reports a size of 0, which would book the window as pure cost.
+    #[test]
+    fn test_regular_file_len_only_answers_for_a_regular_file() -> Result<()> {
+        let mut file = NamedTempFile::new()?;
+        file.write_all(b"hello\n")?;
+        file.flush()?;
+        assert_eq!(regular_file_len(file.path()), Some(6));
+        assert_eq!(regular_file_len(Path::new("/nonexistent-rtk-test")), None);
+        #[cfg(unix)]
+        assert_eq!(regular_file_len(Path::new("/dev/null")), None);
+        Ok(())
+    }
 
     #[test]
     fn test_read_rust_file() -> Result<()> {
@@ -331,24 +531,21 @@ fn main() {{
     #[test]
     fn test_apply_line_window_tail_lines() {
         let input = "a\nb\nc\nd\n";
-        let output = apply_line_window(input, None, None, Some(2), &Language::Unknown);
+        let output = apply_line_window(input, None, None, Some(2));
         assert_eq!(output, "c\nd\n");
     }
 
     #[test]
     fn test_apply_line_window_tail_lines_no_trailing_newline() {
         let input = "a\nb\nc\nd";
-        let output = apply_line_window(input, None, None, Some(2), &Language::Unknown);
+        let output = apply_line_window(input, None, None, Some(2));
         assert_eq!(output, "c\nd");
     }
 
     #[test]
     fn test_head_window_matches_native_head() {
         let input = "1\n2\n3\n4\n5\n";
-        assert_eq!(
-            apply_line_window(input, None, Some(3), None, &Language::Unknown),
-            "1\n2\n3\n"
-        );
+        assert_eq!(apply_line_window(input, None, Some(3), None), "1\n2\n3\n");
     }
 
     /// The defect this window exists to fix: `--max-lines N` keeps only about
@@ -360,7 +557,7 @@ fn main() {{
             .collect::<Vec<_>>()
             .join("\n")
             + "\n";
-        let head = apply_line_window(&input, None, Some(10), None, &Language::Unknown);
+        let head = apply_line_window(&input, None, Some(10), None);
         assert_eq!(head.lines().count(), 10);
         assert_eq!(head.lines().last(), Some("10"));
     }
@@ -368,49 +565,34 @@ fn main() {{
     #[test]
     fn test_head_window_single_line() {
         let input = "1\n2\n3\n";
-        assert_eq!(
-            apply_line_window(input, None, Some(1), None, &Language::Unknown),
-            "1\n"
-        );
+        assert_eq!(apply_line_window(input, None, Some(1), None), "1\n");
     }
 
     #[test]
     fn test_head_window_zero_is_empty() {
-        assert_eq!(
-            apply_line_window("a\nb\n", None, Some(0), None, &Language::Unknown),
-            ""
-        );
+        assert_eq!(apply_line_window("a\nb\n", None, Some(0), None), "");
     }
 
     #[test]
     fn test_head_window_n_exceeds_line_count() {
         let input = "a\nb\n";
-        assert_eq!(
-            apply_line_window(input, None, Some(99), None, &Language::Unknown),
-            input
-        );
+        assert_eq!(apply_line_window(input, None, Some(99), None), input);
     }
 
     #[test]
     fn test_head_window_empty_input() {
-        assert_eq!(
-            apply_line_window("", None, Some(5), None, &Language::Unknown),
-            ""
-        );
+        assert_eq!(apply_line_window("", None, Some(5), None), "");
     }
 
     #[test]
     fn test_head_window_unterminated_final_line() {
-        assert_eq!(
-            apply_line_window("a\nb\nc", None, Some(3), None, &Language::Unknown),
-            "a\nb\nc"
-        );
+        assert_eq!(apply_line_window("a\nb\nc", None, Some(3), None), "a\nb\nc");
     }
 
     #[test]
     fn test_head_window_preserves_crlf() {
         assert_eq!(
-            apply_line_window("a\r\nb\r\nc\r\n", None, Some(2), None, &Language::Unknown),
+            apply_line_window("a\r\nb\r\nc\r\n", None, Some(2), None),
             "a\r\nb\r\n"
         );
     }
@@ -418,7 +600,7 @@ fn main() {{
     #[test]
     fn test_tail_window_preserves_crlf() {
         assert_eq!(
-            apply_line_window("a\r\nb\r\nc\r\n", None, None, Some(2), &Language::Unknown),
+            apply_line_window("a\r\nb\r\nc\r\n", None, None, Some(2)),
             "b\r\nc\r\n"
         );
     }
@@ -427,41 +609,29 @@ fn main() {{
     /// selects one line too few for newline-terminated input.
     #[test]
     fn test_tail_window_unterminated_single_line() {
-        assert_eq!(
-            apply_line_window("a\nb\nc", None, None, Some(1), &Language::Unknown),
-            "c"
-        );
+        assert_eq!(apply_line_window("a\nb\nc", None, None, Some(1)), "c");
     }
 
     #[test]
     fn test_tail_window_n_exceeds_line_count() {
         let input = "a\nb\n";
-        assert_eq!(
-            apply_line_window(input, None, None, Some(99), &Language::Unknown),
-            input
-        );
+        assert_eq!(apply_line_window(input, None, None, Some(99)), input);
     }
 
     #[test]
     fn test_tail_window_empty_input() {
-        assert_eq!(
-            apply_line_window("", None, None, Some(5), &Language::Unknown),
-            ""
-        );
+        assert_eq!(apply_line_window("", None, None, Some(5)), "");
     }
 
     #[test]
     fn test_max_lines_zero_is_empty() {
-        assert_eq!(
-            apply_line_window("a\nb\nc\n", Some(0), None, None, &Language::Unknown),
-            ""
-        );
+        assert_eq!(apply_line_window("a\nb\nc\n", Some(0), None, None), "");
     }
 
     #[test]
     fn test_head_window_mixed_line_endings() {
         assert_eq!(
-            apply_line_window("a\r\nb\nc\r\n", None, Some(2), None, &Language::Unknown),
+            apply_line_window("a\r\nb\nc\r\n", None, Some(2), None),
             "a\r\nb\n"
         );
     }
@@ -469,7 +639,7 @@ fn main() {{
     #[test]
     fn test_tail_window_mixed_line_endings() {
         assert_eq!(
-            apply_line_window("a\r\nb\nc\r\n", None, None, Some(2), &Language::Unknown),
+            apply_line_window("a\r\nb\nc\r\n", None, None, Some(2)),
             "b\nc\r\n"
         );
     }
@@ -478,39 +648,30 @@ fn main() {{
     fn test_windows_preserve_multibyte_utf8() {
         let input = "héllo\n日本語\nثالث\n";
         assert_eq!(
-            apply_line_window(input, None, Some(2), None, &Language::Unknown),
+            apply_line_window(input, None, Some(2), None),
             "héllo\n日本語\n"
         );
         assert_eq!(
-            apply_line_window(input, None, None, Some(2), &Language::Unknown),
+            apply_line_window(input, None, None, Some(2)),
             "日本語\nثالث\n"
         );
     }
 
     #[test]
     fn test_windows_on_blank_lines_only() {
-        assert_eq!(
-            apply_line_window("\n\n\n", None, Some(2), None, &Language::Unknown),
-            "\n\n"
-        );
-        assert_eq!(
-            apply_line_window("\n\n\n", None, None, Some(2), &Language::Unknown),
-            "\n\n"
-        );
+        assert_eq!(apply_line_window("\n\n\n", None, Some(2), None), "\n\n");
+        assert_eq!(apply_line_window("\n\n\n", None, None, Some(2)), "\n\n");
     }
 
     #[test]
     fn test_tail_window_zero_is_empty() {
-        assert_eq!(
-            apply_line_window("a\nb\n", None, None, Some(0), &Language::Unknown),
-            ""
-        );
+        assert_eq!(apply_line_window("a\nb\n", None, None, Some(0)), "");
     }
 
     #[test]
     fn test_apply_line_window_max_lines_still_works() {
         let input = "a\nb\nc\nd\n";
-        let output = apply_line_window(input, Some(2), None, None, &Language::Unknown);
+        let output = apply_line_window(input, Some(2), None, None);
         assert!(output.starts_with("a\n"));
         assert!(output.contains("more lines"));
     }
@@ -563,15 +724,12 @@ fn main() {{
     #[test]
     #[ignore]
     fn test_read_two_valid_files_concatenated() {
-        let bin = rtk_bin();
-        assert!(bin.exists(), "Run `cargo build` first");
-
         let mut f1 = NamedTempFile::with_suffix(".txt").unwrap();
         let mut f2 = NamedTempFile::with_suffix(".txt").unwrap();
         writeln!(f1, "alpha\nbravo").unwrap();
         writeln!(f2, "charlie\ndelta").unwrap();
 
-        let output = std::process::Command::new(&bin)
+        let output = test_isolation::rtk_command()
             .args([
                 "read",
                 &f1.path().to_string_lossy(),
@@ -589,13 +747,10 @@ fn main() {{
     #[test]
     #[ignore]
     fn test_read_valid_and_nonexistent() {
-        let bin = rtk_bin();
-        assert!(bin.exists(), "Run `cargo build` first");
-
         let mut f1 = NamedTempFile::with_suffix(".txt").unwrap();
         writeln!(f1, "valid content").unwrap();
 
-        let output = std::process::Command::new(&bin)
+        let output = test_isolation::rtk_command()
             .args([
                 "read",
                 &f1.path().to_string_lossy(),
@@ -705,10 +860,7 @@ fn main() {{
     #[test]
     #[ignore]
     fn test_read_stdin_dedup_warning() {
-        let bin = rtk_bin();
-        assert!(bin.exists(), "Run `cargo build` first");
-
-        let output = std::process::Command::new(&bin)
+        let output = test_isolation::rtk_command()
             .args(["read", "-", "-"])
             .stdin(std::process::Stdio::piped())
             .output()
