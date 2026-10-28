@@ -2314,7 +2314,7 @@ fn takes_attached_value(wrapper: &ProcessWrapper, arg: &str) -> bool {
 fn cpp_rewrite_is_safe(rtk_cmd: &str, command: &str) -> bool {
     if !matches!(
         rtk_cmd,
-        "rtk cmake" | "rtk ctest" | "rtk make" | "rtk ninja" | "rtk msbuild"
+        "rtk cmake" | "rtk make" | "rtk ninja" | "rtk msbuild"
     ) {
         return true;
     }
@@ -2331,13 +2331,6 @@ fn cpp_rewrite_is_safe(rtk_cmd: &str, command: &str) -> bool {
                     || arg.starts_with("--help-")
             }) && options.clone().any(|arg| arg == "--build" || arg == "-B")
         }
-        "rtk ctest" => !options.clone().any(|arg| {
-            matches!(
-                arg.as_str(),
-                "-N" | "--show-only" | "--print-labels" | "--help" | "--version"
-            ) || arg.starts_with("--show-only=")
-                || arg.starts_with("--help-")
-        }),
         "rtk make" => !make_has_unsafe_option(command),
         "rtk ninja" => !options.clone().any(|arg| {
             matches!(
@@ -2700,10 +2693,6 @@ mod tests {
                 "cmake -G Ninja -S src -B build",
                 "rtk cmake -G Ninja -S src -B build",
             ),
-            (
-                "ctest --test-dir build -C Release",
-                "rtk ctest --test-dir build -C Release",
-            ),
             ("make -j8 all", "rtk make -j8 all"),
             ("make -B all", "rtk make -B all"),
             ("make -C build all", "rtk make -C build all"),
@@ -2780,11 +2769,6 @@ mod tests {
             "cmake --workflow workflow --preset default -B build",
             "cmake --install build -B other",
             "cmake --open build -B other",
-            "ctest -N",
-            "ctest --show-only=json-v1",
-            "ctest --print-labels",
-            "ctest --help-full",
-            "ctest --version",
             "make -n all",
             "make --dry-run all",
             "make --just-print all",
