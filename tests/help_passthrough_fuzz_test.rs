@@ -529,7 +529,7 @@ fn a_tools_own_dash_h_is_still_filtered() {
     std::fs::write(dir.join("two.txt"), "y\n").expect("write");
     let path = dir.to_string_lossy().into_owned();
 
-    for (tool, args) in [("ls", vec!["-h", &path]), ("tree", vec!["-h", &path])] {
+    for (tool, args) in [("ls", vec!["-l", "-h", &path]), ("tree", vec!["-h", &path])] {
         let Some(native) = on_path(tool) else {
             continue;
         };
